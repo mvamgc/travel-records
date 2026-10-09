@@ -36,12 +36,14 @@
 ## 5. Sync Engine
 - **REQ-022** — WHILE offline, the app SHALL durably queue all create/update/delete operations in IndexedDB.
 - **REQ-023** — WHEN connectivity is (re)established AND the user is signed in, THEN the app SHALL automatically drain the sync queue without manual action.
-- **REQ-024** — The sync engine SHALL transmit in staged priority order: (1) text/notes/metadata, (2) downsized images, (3) full-resolution photos/videos.
+- **REQ-024** — The sync engine SHALL transmit in staged priority order: (1) text/notes/metadata, (2) downsized images, (3) full-resolution photos/videos, subject to REQ-052 and REQ-053.
 - **REQ-025** — WHEN syncing an image, THEN its downsized preview SHALL upload before the corresponding full-resolution original.
-- **REQ-026** — WHEN uploading a full-resolution photo or video, THEN the client SHALL split it into chunks ≤6 MB and POST each through Lambda, which SHALL reassemble them into the S3 object.
-- **REQ-027** — IF a chunked upload is interrupted, THEN on the next sync the app SHALL resume from the last acknowledged chunk rather than restarting the file.
+- **REQ-026** — WHEN uploading media (preview or original), THEN the client SHALL send it in sequential chunks no larger than the server-advertised maximum (≤4 MiB) and MAY change the chunk size between requests; the server SHALL assemble the chunks into the final S3 object and verify its SHA-256 digest (ADR-0001).
+- **REQ-027** — IF a chunked upload is interrupted, THEN on the next sync the app SHALL resume from the last byte offset committed by the server rather than restarting the file.
 - **REQ-028** — IF a sync operation fails, THEN the app SHALL retry with backoff and preserve the queued operation until it succeeds or is explicitly cancelled.
 - **REQ-029** — WHILE syncing, the app SHALL display sync status/progress to the user.
+- **REQ-052** — WHILE measured upload throughput is below the configured threshold, the sync engine SHALL defer full-resolution uploads (lane 3) and continue syncing text and previews.
+- **REQ-053** — WHEN the user chooses "upload originals now", THEN the sync engine SHALL start full-resolution uploads regardless of REQ-052; WHEN the user chooses "hold originals", THEN it SHALL NOT upload them until the user releases the hold.
 
 ## 6. Conflict Resolution
 - **REQ-030** — WHEN the server detects an incoming update targeting an item modified concurrently (diverged versions), THEN it SHALL flag a conflict rather than silently overwriting.
@@ -81,6 +83,6 @@
 - Public discovery feed, profiles, search, or a social graph beyond direct friends.
 - Full-resolution offline mirror of all content (originals are evicted after upload).
 - Editing other users' contributed items in a shared album.
-- Wifi-only / data-saver network policies (sync runs on any connection).
+- Automatic network-type detection (Wi-Fi vs cellular/roaming); the manual hold (REQ-053) covers expensive connections.
 - Server-side rendering / SEO for app pages (CSR SPA).
 - End-to-end encryption of stored media.
