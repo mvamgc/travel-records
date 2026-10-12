@@ -5,13 +5,18 @@
 > **Stack (context, not requirements):** Leptos CSR SPA + PWA · Rust on AWS Lambda + API Gateway · DynamoDB (metadata) · S3 (blobs) · Amazon Cognito (user pools + guest identities).
 
 ## 1. Onboarding & Authentication
-- **REQ-001** — WHEN a user opens the app for the first time, THEN the app SHALL create a local anonymous (Cognito guest) identity and allow full use without sign-in.
+- **REQ-001** — WHEN a user opens the app for the first time, THEN the app SHALL create a local guest identity on the device, without any network call, and allow full use without sign-in (ADR-0002).
 - **REQ-002** — WHILE a user is an unsigned guest, the app SHALL allow creating albums, photos, videos, and notes, stored locally.
 - **REQ-003** — WHEN a guest attempts to sync to the server or share content, THEN the app SHALL require sign-in/registration via the Cognito user pool before proceeding.
-- **REQ-004** — WHEN a guest signs in for the first time on a device holding local guest data, THEN the app SHALL migrate that local data to the authenticated account.
+- **REQ-004** — WHEN a user signs in on a device holding guest data, THEN the app SHALL migrate that data to the authenticated account, subject to REQ-056.
 - **REQ-005** — IF migration of any guest item on sign-in fails, THEN the app SHALL retain the local copy and retry, and SHALL NOT delete unmigrated local data.
 - **REQ-006** — WHEN a signed-in user authenticates on another device, THEN that device SHALL receive the account's albums, notes, and media metadata via sync.
 - **REQ-007** — WHEN a Cognito session/token expires, THEN the app SHALL refresh it transparently while online, and WHILE offline SHALL continue local-only operation.
+- **REQ-054** — WHEN a guest first saves content, THEN the app SHALL request persistent browser storage.
+- **REQ-055** — WHILE a guest holds content that exists only on the device, the app SHALL show a non-blocking prompt suggesting sign-in to back it up, and suggesting installing the app IF storage persistence was not granted.
+- **REQ-056** — WHEN a guest with content signs in to an account that already has content, THEN the app SHALL show what will be added and ask for confirmation; IF the user cancels, THEN the app SHALL abort the sign-in and leave guest data unchanged.
+- **REQ-057** — IF unsynced changes bound to one account exist AND a different account signs in, THEN the app SHALL NOT upload those changes to the new account, and SHALL ask the user to sign in to the original account or discard them.
+- **REQ-058** — WHEN a user signs out, THEN the app SHALL warn IF unsynced changes exist (allowing cancel or discard), remove that account's data from the device, and start a fresh guest identity.
 
 ## 2. Content Model (Albums, Photos, Videos, Notes)
 - **REQ-008** — WHEN a user creates an album, THEN the app SHALL assign a client-generated unique ID usable offline.

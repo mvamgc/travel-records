@@ -59,16 +59,33 @@ graph TD
 
 - **Rendering:** CSR SPA. No SSR; the only externally fetched HTML is the public share page, which is also served by the SPA shell + a public API call (kept simple for the POC; SEO is a non-goal).
 - **Local data layer:** a thin Rust/WASM repository over IndexedDB. Everything the UI reads comes from IndexedDB; the network is never on the UI's critical path.
-- **Outbox pattern:** every mutation writes the entity to IndexedDB **and** appends an operation to the outbox in one logical step (REQ-012). The UI reflects the local write immediately; the sync engine propagates it later.
+- **Outbox pattern:** every mutation writes the entity to IndexedDB **and** appends an operation to the outbox in one logical step (REQ-012). The UI reflects the local write immediately; the sync engine propagates it later. While the user is a guest, changes are not queued; migration queues the current state (§3).
 - **Client-generated IDs:** entities get client-side UUIDs at creation so they are referenceable offline and stable across sync (REQ-008).
 - **Media pipeline (client):** on capture, the client produces a **downsized preview** (and strips location from it) and keeps the **original**. Preview + original are both stored locally and queued for staged upload (REQ-024, REQ-025).
 
 ## 3. Identity & auth
 
-- **Guest = local-only identity.** First launch creates a local anonymous user (client UUID) with no network call, so the app is usable with zero connectivity (REQ-001, REQ-002). Because guests cannot sync or share (REQ-003), no Cognito identity is required for them. *(This reinterprets REQ-001's "Cognito guest" as local-only — see ADR-0002.)*
-- **Sign-in** uses a Cognito User Pool; the client holds the JWT and sends it on owner API calls. API Gateway validates it via a Cognito JWT authorizer (REQ-003, REQ-007).
-- **Guest→account migration:** on first sign-in, the client re-stamps local entities with the account's ownership and pushes them through the normal sync path; unmigrated items are retained and retried on failure (REQ-004, REQ-005).
-- **Token lifecycle:** refresh transparently while online; degrade to local-only while offline (REQ-007).
+Decided in [ADR-0002](adr/0002-guest-identity.md).
+
+- **Three identities on a device:**
+  - a **device ID**, generated at first launch and kept for the life of the installation;
+  - one **local profile** that owns all local data, either a guest or bound to an account;
+  - the **account**, a Cognito user identified by `sub`.
+
+  The server takes ownership from the JWT `sub`, never from client-supplied fields.
+- **Guest = local-only identity.** First launch creates a guest profile on the device with no network call, so the app is usable with zero connectivity (REQ-001, REQ-002). Guests cannot sync or share (REQ-003), so they need no Cognito identity.
+- **Guest data protection:** guest content exists only on the device. The app requests persistent storage on the first save (REQ-054), and prompts the guest to sign in, or to install the app if persistence was refused, without blocking local use (REQ-055).
+- **Sign-in** uses a Cognito User Pool. The client holds the JWT and sends it on owner API calls, and API Gateway validates it with a Cognito JWT authorizer (REQ-003, REQ-007).
+- **Guest→account migration:**
+  1. If the account already has content, the user confirms what will be added; cancelling aborts the sign-in (REQ-056).
+  2. The client then re-stamps guest records with the account's `sub`, binds the profile, and queues one create per entity with its current state. Guest edit history is never replayed.
+  3. Normal sync pushes the creates. Unmigrated items are retained and retried on failure (REQ-004, REQ-005).
+- **Account binding:** a bound profile never changes account. Unsynced changes are never uploaded to a different account; the user must sign in to the original account or discard them (REQ-057).
+- **Sign-out:** after a warning if changes haven't synced, the app deletes the account's local data and starts a fresh guest. The device ID stays (REQ-058).
+- **Token lifecycle:**
+  - access and ID tokens are kept in memory, and the refresh token in IndexedDB;
+  - the refresh token's lifetime covers long offline trips;
+  - tokens are refreshed transparently while online, and the app degrades to local-only while offline (REQ-007).
 - **Public viewers** are unauthenticated and reach content only through a tokenized public route (§5, §8).
 
 ## 4. Sync engine (the core)
@@ -90,7 +107,7 @@ Each push carries the entity's `version`. The server applies it with a **conditi
 Failures are retried with backoff; queued ops persist until acknowledged or cancelled (REQ-028). Sync status/progress is surfaced to the UI (REQ-029).
 
 ### Pull (server → client)
-The client holds a per-device **sync cursor** and asks for all changes since it. The server returns metadata deltas (including tombstones, REQ-046) so other devices converge (REQ-006). Media bytes are fetched lazily via presigned GET URLs on demand (REQ-050).
+The client holds a per-device, per-account **sync cursor** and asks for all changes since it. The server returns metadata deltas (including tombstones, REQ-046) so other devices converge (REQ-006). Media bytes are fetched lazily via presigned GET URLs on demand (REQ-050).
 
 ```mermaid
 sequenceDiagram
@@ -219,7 +236,7 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 | ADR | Decision | Status |
 |---|---|---|
 | [ADR-0001](adr/0001-resumable-media-upload.md) | Resumable media upload: small chunks staged in S3, joined by `media-assembler` | Accepted |
-| ADR-0002 | Guest identity: local-only vs Cognito Identity Pool unauthenticated | Open |
+| [ADR-0002](adr/0002-guest-identity.md) | Guest identity: local-only guest, migration with confirmation, sign-out clears the device | Accepted |
 | ADR-0003 | Change-feed: `(owner, updatedAt)` GSI vs DynamoDB Streams + per-user log | Open |
 | ADR-0004 | Conflict versioning: monotonic integer vs hybrid logical clock | Open |
 | ADR-0005 | IaC + Rust Lambda toolchain: SAM vs CDK; `axum` vs `lambda_runtime` | Open |
@@ -227,5 +244,5 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 
 ## 12. Next documents
 - `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
-- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime; ADR-0001 proposes initial values).
+- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime; ADR-0001 and ADR-0002 propose initial values).
 - `docs/adr/` — the decisions in §11.
