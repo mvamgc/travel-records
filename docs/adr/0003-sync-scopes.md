@@ -55,8 +55,8 @@ Each scope has a **head** record holding the number of its last committed change
 1. Read S's head, n.
 2. In one `TransactWriteItems` call:
    - set the head to n+1, on condition that it still equals n;
-   - write the record with `seq = n+1`, together with the version check that detects conflicts (REQ-030; scheme decided in ADR-0004).
-3. If the head condition fails, another write took n+1 first, so re-read the head and retry. If the version check fails, it is a conflict.
+   - write the record with `seq = n+1`, together with the per-field stamp check that detects conflicts (REQ-030, [ADR-0004](0004-conflict-versioning.md)).
+3. If the head condition fails, another write took n+1 first, so re-read the head and retry. If the stamp check fails, it is a conflict.
 
 Writes within one scope are therefore serialized, and change numbers become visible strictly in order. Devices read a scope ordered by `seq` with **strongly consistent** reads. DynamoDB supports those on the base table and on local secondary indexes, but not on global ones; the key design is left to the data-model LLD. Change n+1 can never be visible before change n, so a cursor never skips anything.
 
@@ -83,7 +83,7 @@ Pages are limited by size. The client picks the size from measured throughput, a
 
 **New scopes** are found through the personal scope. When a new membership record arrives, the device adds that album's scope with cursor 0. The initial download is just a normal pull from 0.
 
-The client pushes its outbox before pulling. Its own changes come back with new numbers; it recognises them by version and just advances the cursor.
+The client pushes its outbox before pulling. Its own changes come back with new numbers; it recognises them by their stamps (ADR-0004) and just advances the cursor.
 
 ### 5. Losing access
 
@@ -153,7 +153,7 @@ Other members' changes reach an open device within minutes. Live notifications a
 - **Follow-ups:**
   - data-model LLD: keys, the index for ordered reads, the head record;
   - sync LLD: pull request and response format, page limits, resync procedure;
-  - ADR-0004 (versioning), which plugs into the version check in decision 2.
+  - [ADR-0004](0004-conflict-versioning.md) (per-field HLC stamps), which plugs into the stamp check in decision 2.
 
 ## Parameters
 
