@@ -101,13 +101,10 @@ Operations drain in **three staged lanes** (REQ-024):
 Media uploads (lanes 2 and 3) run up to three files in parallel, each one sequentially (ADR-0001).
 
 Each push carries the entity's `version`. The server applies it with a **conditional write** on that version:
-- **Match →** apply, bump version, append to the change feed.
+- **Match →** apply, bump version, and take the scope's next change number in the same transaction (ADR-0003).
 - **Mismatch →** reject as a conflict; the client keeps both local and server copies and prompts the user (REQ-030–REQ-033).
 
 Failures are retried with backoff; queued ops persist until acknowledged or cancelled (REQ-028). Sync status/progress is surfaced to the UI (REQ-029).
-
-### Pull (server → client)
-The client holds a per-device, per-account **sync cursor** and asks for all changes since it. The server returns metadata deltas (including tombstones, REQ-046) so other devices converge (REQ-006). Media bytes are fetched lazily via presigned GET URLs on demand (REQ-050).
 
 ```mermaid
 sequenceDiagram
@@ -115,28 +112,41 @@ sequenceDiagram
   participant A as Lambda sync
   participant D as DynamoDB
   C->>A: push(op, entityId, version=N)
-  A->>D: conditional update (version == N)
+  A->>D: transaction: scope head n to n+1, record seq = n+1, version == N
   alt version matches
-    D-->>A: ok (version=N+1)
-    A->>D: append change-feed entry
+    D-->>A: ok (version=N+1, seq=n+1)
     A-->>C: applied(version=N+1)
   else version diverged
     D-->>A: condition failed
     A-->>C: conflict(serverVersion)
     Note over C: keep both, prompt user (REQ-031)
   end
+  Note over A,D: if another write took n+1 first,<br/>re-read the head and retry
 ```
 
-> **Open decision (ADR-0003):** change-feed mechanism — a GSI keyed on `(owner, updatedAt)` vs DynamoDB Streams feeding a per-user log. **ADR-0004:** versioning scheme — monotonic integer vs hybrid logical clock — given the prompt-to-resolve model, a per-item monotonic version is the leading candidate.
+### Pull (server → client): sync scopes
+Every record belongs to a **sync scope**:
+- the user's **personal scope**: items not in any album, memberships, friendships, settings;
+- an **album scope**: the album, all its items whoever added them, comments, reactions, members.
+
+Each scope numbers its changes. A record carries the number of its latest change, so a scope's feed is just its records in change order: current state, not history.
+
+- The device keeps one cursor per scope (per device and account) and sends them all in one `POST /sync/pull`. The server checks access, reads the scopes in parallel, and returns changed records, tombstones included, in small pages sized to the connection (REQ-006, REQ-039, REQ-042, REQ-046).
+- A new membership arriving in the personal scope makes the device read that album's scope from 0. When access ends, the scope comes back `gone`, and the device deletes its local copy of the album (REQ-044, REQ-059).
+- If a cursor is older than the scope's purge horizon, the device resyncs that scope from 0 without discarding unsynced changes (REQ-062).
+- Devices pull on open, on focus, on reconnect, after each push, and on a timer (REQ-061).
+- Media bytes are fetched lazily via presigned GET URLs on demand (REQ-050).
+
+> **Decided: [ADR-0003](adr/0003-sync-scopes.md).** Numbered change feeds per sync scope. **Open decision (ADR-0004):** versioning scheme — monotonic integer vs hybrid logical clock — given the prompt-to-resolve model, a per-item monotonic version is the leading candidate.
 
 ## 5. Backend (Rust on Lambda)
 
 - **Edge:** API Gateway **HTTP API** (cheaper/simpler than REST API). Cognito JWT authorizer on owner routes; one unauthenticated route for public viewing.
 - **Functions** (split by concern to keep cold starts and IAM scope small):
-  - `sync` — push/pull, conflict detection, change feed.
+  - `sync` — push and pull over sync scopes, conflict detection, scope change numbering (§4).
   - `media` — create, append, status and cancel for resumable uploads: `POST /items/{id}/media/{kind}`, `PATCH`/`HEAD`/`DELETE /uploads/{id}` (§7).
   - `media-assembler` — invoked asynchronously; joins staged chunks into the final S3 object and checks its SHA-256 (§7).
-  - `sharing` — friends graph, album shares, public-link create/revoke.
+  - `sharing` — friends graph, album shares, public-link create/revoke; a background job that returns contributed items to their owners when access ends (§8).
   - `public-viewer` — token-validated read-only access to shared albums (location-stripped).
 - **Runtime:** Rust via `lambda_http` + `axum` routing; `aws-sdk-rust` for DynamoDB/S3/Cognito. Per-function binaries built with `cargo-lambda`.
 - **API style:** REST/JSON. (Leptos server functions are not used — they require a Leptos SSR server, which the CSR-only choice excludes.)
@@ -145,20 +155,20 @@ sequenceDiagram
 
 ## 6. Data model (DynamoDB, high level)
 
-Single-table design; full key schema and GSIs are deferred to `docs/lld/data-model.md`. Core entities:
+Single-table design; full key schema and indexes are deferred to `docs/lld/data-model.md`. Every record carries its sync `scope` and `seq`, the number of its latest change, and scopes are read in `seq` order with strongly consistent reads (ADR-0003). Core entities:
 
 | Entity | Notes |
 |---|---|
 | **User** | account profile, settings |
 | **Album** | owner, title, permission mode |
 | **Item** | photo / video / note; `albumId?`, caption, geotag, `version`, timestamps, `deletedAt?` (tombstone), media state per representation (`uploading` → `available`) |
-| **Membership** | which user has which role (owner/contributor/viewer) on an album |
-| **FriendEdge** | friend relationship + state (pending/accepted) |
+| **Membership** | which user has which role (owner/contributor/viewer) on an album; one copy in the album scope, one in the member's personal scope |
+| **FriendEdge** | friend relationship + state (pending/accepted); one copy in each user's personal scope |
 | **PublicLink** | token, albumId, `expiresAt?`, `revoked` |
 | **Comment / Reaction** | attached to album or item |
-| **ChangeFeed** | ordered per-owner deltas for pull sync |
+| **ScopeHead** | number of the last committed change in a sync scope (ADR-0003) |
 
-Key access patterns the schema must serve: list albums by owner; list items by album; pull changes by owner since cursor; resolve a public token → album + items; list a user's friends; comments/reactions by target. Items carry a `version` for conflict detection (REQ-013) and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
+Key access patterns the schema must serve: list albums by owner; list items by album; read a scope's records in change order from a cursor; resolve a public token → album + items; list a user's friends; comments/reactions by target. Items carry a `version` for conflict detection (REQ-013) and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
 
 ## 7. Media storage & chunked upload
 
@@ -213,13 +223,13 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 ## 8. Sharing, collaboration & public links
 
 - **Friends graph** — request / accept / remove between accounts (REQ-035).
-- **Album shares** — grant a friend `viewer` or `contributor` via a Membership record (REQ-034). Contributors add their own items and may edit/delete only those (REQ-039, REQ-040), enforced server-side by owner checks.
+- **Album shares** — grant a friend `viewer` or `contributor` via a Membership record (REQ-034). Contributors add their own items and may edit/delete only those (REQ-039, REQ-040), enforced server-side by owner checks. When a member loses access, the items they contributed go back to their personal library (REQ-059). Deleting an album returns every item to its owner and deletes no photos (REQ-060).
 - **Public links** — a high-entropy token maps to an album; the `public-viewer` Lambda serves read-only, location-stripped content with short-lived presigned media URLs. Revocation flips `revoked`; expiry checks `expiresAt`; both deny access immediately (REQ-036–REQ-038).
 - **Social** — comments and reactions sync like any item and become visible to album members (REQ-042, REQ-043); revoking access or deleting the album removes access to them (REQ-044).
 
 ## 9. Deletion, trash & retention
 
-- Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge is a candidate for DynamoDB TTL + an S3 lifecycle/cleanup step.
+- Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge runs as a scheduled job rather than plain DynamoDB TTL, so each scope's purge horizon advances with the deletions; the same job cleans up media files. Deletion records are kept for a retention period after the trash window, and a device whose cursor is older than that resyncs the affected scope (REQ-062, ADR-0003).
 - The client **evicts full-resolution originals after confirmed upload**, keeping only previews; originals are re-downloaded on demand when online, and shown as preview-with-indicator when offline (REQ-049–REQ-051).
 - When local storage nears quota, the client surfaces the condition and applies eviction rather than failing silently (REQ-021).
 
@@ -237,12 +247,12 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 |---|---|---|
 | [ADR-0001](adr/0001-resumable-media-upload.md) | Resumable media upload: small chunks staged in S3, joined by `media-assembler` | Accepted |
 | [ADR-0002](adr/0002-guest-identity.md) | Guest identity: local-only guest, migration with confirmation, sign-out clears the device | Accepted |
-| ADR-0003 | Change-feed: `(owner, updatedAt)` GSI vs DynamoDB Streams + per-user log | Open |
+| [ADR-0003](adr/0003-sync-scopes.md) | Change feed: numbered feeds per sync scope (personal and per album) | Accepted |
 | ADR-0004 | Conflict versioning: monotonic integer vs hybrid logical clock | Open |
 | ADR-0005 | IaC + Rust Lambda toolchain: SAM vs CDK; `axum` vs `lambda_runtime` | Open |
 | ADR-0006 | Public media sanitization: strip-on-serve vs pre-generated derivative | Open |
 
 ## 12. Next documents
 - `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
-- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime; ADR-0001 and ADR-0002 propose initial values).
+- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, pull page size, periodic pull interval, deletion-record retention; ADR-0001 to ADR-0003 propose initial values).
 - `docs/adr/` — the decisions in §11.
