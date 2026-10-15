@@ -31,6 +31,8 @@
 - **REQ-015** — WHILE viewing their own content, the user SHALL have a map view plotting geotagged records by location.
 - **REQ-016** — WHEN content is served via a public link, THEN the app SHALL strip precise geotag/EXIF location data from the publicly served copies.
 - **REQ-017** — IF the user denies location permission, THEN capture and saving SHALL still succeed without a geotag.
+- **REQ-065** — WHILE viewing an album they are a member of, members SHALL see the same location data as the owner: geotags, the map, and original files with their metadata.
+- **REQ-067** — WHEN the server stores a preview, THEN it SHALL remove all embedded metadata not needed to display the image.
 
 ## 4. Offline Storage & PWA
 - **REQ-018** — The frontend SHALL be an installable PWA whose app shell loads and functions while offline.
@@ -71,6 +73,7 @@
 - **REQ-041** — WHILE viewing a shared album via a public link, viewers SHALL NOT see precise location data (per REQ-016).
 - **REQ-059** — WHEN a member loses access to an album, THEN the items that member contributed SHALL return to their personal library, and their devices SHALL delete their local copies of the album's remaining content.
 - **REQ-060** — WHEN an owner deletes an album, THEN the app SHALL NOT delete its items; every item SHALL return to its owner's personal library.
+- **REQ-066** — WHEN an album is viewed via a public link, THEN photos SHALL be served only as downsized previews and videos only as copies with location metadata removed, and no location data, precise or approximate, SHALL be shown.
 
 ## 8. Social Interaction
 - **REQ-042** — WHEN a viewer with access comments on a shared album/photo, THEN the comment SHALL sync and become visible to other members.
