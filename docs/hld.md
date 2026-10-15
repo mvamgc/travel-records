@@ -20,6 +20,8 @@ graph TD
   end
 
   subgraph AWS
+    CF[CloudFront<br/>one HTTPS origin]
+    Site[(S3: SPA assets)]
     APIGW[API Gateway HTTP API]
     Authz[Cognito JWT authorizer]
     LSync[Lambda: sync push/pull]
@@ -32,7 +34,10 @@ graph TD
     Cognito[Cognito User Pool]
   end
 
-  Sync -->|JWT| APIGW
+  SW -->|app shell| CF
+  Sync -->|JWT| CF
+  CF -->|"/*"| Site
+  CF -->|"/api/*"| APIGW
   APIGW --> Authz
   Authz --> LSync & LMedia & LShare
   APIGW -->|no auth, token| LPublic
@@ -49,7 +54,8 @@ graph TD
 - **IndexedDB** — single local store for records, media blobs, and the outbox queue (REQ-019, REQ-022).
 - **Sync engine** — drains the outbox in staged priority order, pulls server deltas, surfaces conflicts and sync status (§4, REQ-023–REQ-029).
 - **Service worker** — caches the app shell so the SPA boots offline (REQ-018).
-- **API Gateway (HTTP API)** — single edge; JWT authorizer for owner routes, a separate unauthenticated route for public-link viewing.
+- **CloudFront** — one HTTPS origin: serves the SPA from S3 and forwards `/api/*` to API Gateway, so the app never makes cross-origin API calls (ADR-0005).
+- **API Gateway (HTTP API)** — behind CloudFront; JWT authorizer for owner routes, a separate unauthenticated route for public-link viewing.
 - **Lambda functions (Rust)** — partitioned by concern: sync, media upload, media assembly, sharing/social, public viewer (§5).
 - **DynamoDB** — all metadata (single-table design, §6).
 - **S3** — media originals, downsized previews, chunk staging, and sanitized public derivatives (§7).
@@ -147,17 +153,19 @@ Each scope numbers its changes. A record carries the number of its latest change
 
 ## 5. Backend (Rust on Lambda)
 
-- **Edge:** API Gateway **HTTP API** (cheaper/simpler than REST API). Cognito JWT authorizer on owner routes; one unauthenticated route for public viewing.
+- **Edge:** CloudFront in front of an API Gateway **HTTP API** (cheaper/simpler than REST API), on the same origin as the SPA, so there are no CORS preflights. Cognito JWT authorizer on owner routes; one unauthenticated route for public viewing. Routes live under `/api/…`.
 - **Functions** (split by concern to keep cold starts and IAM scope small):
   - `sync` — push and pull over sync scopes, conflict detection, scope change numbering (§4).
   - `media` — create, append, status and cancel for resumable uploads: `POST /items/{id}/media/{kind}`, `PATCH`/`HEAD`/`DELETE /uploads/{id}` (§7).
   - `media-assembler` — invoked asynchronously; joins staged chunks into the final S3 object and checks its SHA-256 (§7).
   - `sharing` — friends graph, album shares, public-link create/revoke; a background job that returns contributed items to their owners when access ends (§8).
   - `public-viewer` — token-validated read-only access to shared albums (location-stripped).
-- **Runtime:** Rust via `lambda_http` + `axum` routing; `aws-sdk-rust` for DynamoDB/S3/Cognito. Per-function binaries built with `cargo-lambda`.
-- **API style:** REST/JSON. (Leptos server functions are not used — they require a Leptos SSR server, which the CSR-only choice excludes.)
+  - `access-loss` and `purge` — jobs: returning contributed items when access ends (invoked asynchronously by `sharing`), and the scheduled purge of expired trash and deletion records (§8, §9).
+- **Runtime:** HTTP functions are `axum` routers behind `lambda_http`; jobs use `lambda_runtime`. `aws-sdk-rust` for DynamoDB/S3/Cognito. All are arm64 binaries of one `server` crate, built with `cargo-lambda`, and the same routers run locally as a `dev-server`.
+- **Infrastructure:** AWS CDK (TypeScript) in `infra/`, with one stack per environment (dev, prod) in one account. Deployed by GitHub Actions through OIDC (ADR-0005).
+- **API style:** REST/JSON. Leptos server functions are not used: outbox operations must be stored and replayed later, which fits plain REST requests better than RPC calls.
 
-> **Open decision (ADR-0005):** IaC + toolchain — AWS SAM vs CDK, and `axum`-on-Lambda vs raw `lambda_runtime`. Leaning SAM + `cargo-lambda` for a focused learning POC.
+> **Decided: [ADR-0005](adr/0005-toolchain-and-deployment.md).** CDK (TypeScript) with `cargo-lambda`, axum per concern, CloudFront on one origin, GitHub Actions with OIDC.
 
 ## 6. Data model (DynamoDB, high level)
 
@@ -241,10 +249,10 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 
 ## 10. Cross-cutting concerns
 
-- **Security:** scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM.
+- **Security:** scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
 - **Privacy:** location stripping on all publicly served media (REQ-016, REQ-041).
 - **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
-- **Observability:** structured logs + CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
+- **Observability:** structured JSON logs (`tracing`) to CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
 - **Cost:** scale-to-zero stack (Lambda + DynamoDB on-demand + S3); main variable cost is media storage and egress.
 
 ## 11. Decisions (ADRs)
@@ -255,7 +263,7 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 | [ADR-0002](adr/0002-guest-identity.md) | Guest identity: local-only guest, migration with confirmation, sign-out clears the device | Accepted |
 | [ADR-0003](adr/0003-sync-scopes.md) | Change feed: numbered feeds per sync scope (personal and per album) | Accepted |
 | [ADR-0004](adr/0004-conflict-versioning.md) | Conflict detection: per-field hybrid logical clock stamps | Accepted |
-| ADR-0005 | IaC + Rust Lambda toolchain: SAM vs CDK; `axum` vs `lambda_runtime` | Open |
+| [ADR-0005](adr/0005-toolchain-and-deployment.md) | Toolchain and deployment: CDK (TypeScript), cargo-lambda, axum per concern, CloudFront, GitHub Actions | Accepted |
 | ADR-0006 | Public media sanitization: strip-on-serve vs pre-generated derivative | Open |
 
 ## 12. Next documents
