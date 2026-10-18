@@ -10,7 +10,7 @@
 The earlier decisions fix what has to be deployed:
 
 - an API Gateway HTTP API with a Cognito JWT authorizer (HLD §3, §5);
-- HTTP functions `sync`, `media`, `sharing` and `public-viewer`, and background jobs `media-assembler` (ADR-0001), `access-loss` and `purge` (ADR-0003);
+- HTTP functions `sync`, `media`, `sharing` and `public-viewer`, and background jobs `media-assembler` (ADR-0001), `access-loss` and `purge` (ADR-0003), and `public-media` ([ADR-0006](0006-public-media-location.md));
 - one DynamoDB table whose index for ordered, strongly consistent reads must exist when the table is created (ADR-0003);
 - an S3 media bucket with lifecycle rules for `staging/` and incomplete multipart uploads (ADR-0001);
 - a Cognito user pool (ADR-0002);
@@ -51,9 +51,9 @@ Cargo.toml          workspace
 crates/shared/      types, sync and upload protocol, HLC — builds for wasm32 and native
 crates/client/      Leptos CSR PWA, built with Trunk
 crates/server/      library: axum routers per concern, DynamoDB and S3 access, auth
-                    binaries: sync, media, sharing, public-viewer      (HTTP)
-                              media-assembler, access-loss, purge      (jobs)
-                              dev-server                               (local)
+                    binaries: sync, media, sharing, public-viewer               (HTTP)
+                              media-assembler, access-loss, purge, public-media (jobs)
+                              dev-server                                        (local)
 infra/              CDK app (TypeScript)
 ```
 
@@ -68,6 +68,7 @@ infra/              CDK app (TypeScript)
 - **Jobs** use `lambda_runtime` with typed events from `aws_lambda_events`:
   - `media-assembler` is invoked asynchronously by `media`, with retries and an on-failure destination;
   - `access-loss` is invoked asynchronously by `sharing`;
+  - `public-media` is invoked asynchronously by `sharing` and `public-viewer`;
   - `purge` runs on an EventBridge schedule.
 - **Logging:** every function writes structured JSON logs through `tracing`, with log retention set per environment.
 

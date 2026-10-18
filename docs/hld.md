@@ -58,7 +58,7 @@ graph TD
 - **API Gateway (HTTP API)** — behind CloudFront; JWT authorizer for owner routes, a separate unauthenticated route for public-link viewing.
 - **Lambda functions (Rust)** — partitioned by concern: sync, media upload, media assembly, sharing/social, public viewer (§5).
 - **DynamoDB** — all metadata (single-table design, §6).
-- **S3** — media originals, downsized previews, chunk staging, and sanitized public derivatives (§7).
+- **S3** — media originals, downsized previews, chunk staging, and location-free copies of public videos (§7).
 - **Cognito** — user identity and JWT issuance; involved only at and after sign-in (§3).
 
 ## 2. Client architecture (Leptos)
@@ -159,8 +159,9 @@ Each scope numbers its changes. A record carries the number of its latest change
   - `media` — create, append, status and cancel for resumable uploads: `POST /items/{id}/media/{kind}`, `PATCH`/`HEAD`/`DELETE /uploads/{id}` (§7).
   - `media-assembler` — invoked asynchronously; joins staged chunks into the final S3 object and checks its SHA-256 (§7).
   - `sharing` — friends graph, album shares, public-link create/revoke; a background job that returns contributed items to their owners when access ends (§8).
-  - `public-viewer` — token-validated read-only access to shared albums (location-stripped).
+  - `public-viewer` — token-validated, read-only access to publicly linked albums: previews for photos, location-free copies for videos, no geotags (§7, ADR-0006).
   - `access-loss` and `purge` — jobs: returning contributed items when access ends (invoked asynchronously by `sharing`), and the scheduled purge of expired trash and deletion records (§8, §9).
+  - `public-media` — job: makes location-free copies of videos in publicly linked albums, when a link is created or on first view (§7).
 - **Runtime:** HTTP functions are `axum` routers behind `lambda_http`; jobs use `lambda_runtime`. `aws-sdk-rust` for DynamoDB/S3/Cognito. All are arm64 binaries of one `server` crate, built with `cargo-lambda`, and the same routers run locally as a `dev-server`.
 - **Infrastructure:** AWS CDK (TypeScript) in `infra/`, with one stack per environment (dev, prod) in one account. Deployed by GitHub Actions through OIDC (ADR-0005).
 - **API style:** REST/JSON. Leptos server functions are not used: outbox operations must be stored and replayed later, which fits plain REST requests better than RPC calls.
@@ -188,9 +189,9 @@ Key access patterns the schema must serve: list albums by owner; list items by a
 
 Media lives in S3 under per-owner prefixes, in up to four representations:
 - `original/` — full-resolution photo/video (evicted from the client after confirmed upload, REQ-049).
-- `preview/` — client-generated downsized image, location stripped (uploaded first, REQ-025).
+- `preview/` — client-generated downsized image; the server strips any embedded metadata on upload (uploaded first, REQ-025, REQ-067).
 - `staging/` — in-progress upload chunks.
-- `public/` — sanitized derivative served via public links (EXIF/location stripped, REQ-016, REQ-041).
+- `public/` — location-free copies of videos in albums with an active public link (REQ-016, REQ-041, ADR-0006).
 
 ### Chunked, resumable upload (ADR-0001)
 Previews and originals use the same protocol. Media goes through the `media` Lambda in small chunks: 64 KiB to 4 MiB, sized by the client from measured throughput and changeable between requests. A dropped connection therefore wastes at most one small chunk (REQ-026, REQ-027).
@@ -231,26 +232,31 @@ sequenceDiagram
 
 > **Decided: [ADR-0001](adr/0001-resumable-media-upload.md).** Chunks are staged in S3 and joined by `media-assembler`. S3 multipart with one chunk per part was rejected: Lambda's payload limit keeps chunks below S3's 5 MiB minimum part size.
 
-### Sanitization for public sharing
-Precise location must not leak on public links (REQ-016, REQ-041). Previews are already stripped client-side; for originals exposed publicly, an S3-event-triggered Lambda generates a `public/` derivative with EXIF/location removed. *(Strip-on-serve vs pre-generated derivative → ADR-0006.)*
+### Location privacy on public links (ADR-0006)
+Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
+
+- **Metadata:** `public-viewer` never returns geotags, precise or approximate, and public pages have no map.
+- **Photos:** public viewers get previews only. After checking a preview's digest, the server rewrites it without re-encoding and keeps only an allowlist of parts, such as the image data and the colour profile. EXIF, XMP and unknown metadata are dropped even if a client sent them (REQ-067).
+- **Videos:** the `public-media` job writes a copy to `public/` with location metadata, and the samples of any track other than video or audio, overwritten in place. Nothing is re-encoded and no offsets change. Copies are made when a link is created, or on first view; the daily purge deletes them once the album has no active link.
+- **Members** see location just as the owner does (REQ-065).
 
 ## 8. Sharing, collaboration & public links
 
 - **Friends graph** — request / accept / remove between accounts (REQ-035).
 - **Album shares** — grant a friend `viewer` or `contributor` via a Membership record (REQ-034). Contributors add their own items and may edit/delete only those (REQ-039, REQ-040), enforced server-side by owner checks. When a member loses access, the items they contributed go back to their personal library (REQ-059). Deleting an album returns every item to its owner and deletes no photos (REQ-060).
-- **Public links** — a high-entropy token maps to an album; the `public-viewer` Lambda serves read-only, location-stripped content with short-lived presigned media URLs. Revocation flips `revoked`; expiry checks `expiresAt`; both deny access immediately (REQ-036–REQ-038).
+- **Public links** — a high-entropy token maps to an album; the `public-viewer` Lambda serves read-only content without location (previews for photos, location-free copies for videos; ADR-0006) through short-lived presigned media URLs. Revocation flips `revoked`; expiry checks `expiresAt`; both deny access immediately (REQ-036–REQ-038).
 - **Social** — comments and reactions sync like any item and become visible to album members (REQ-042, REQ-043); revoking access or deleting the album removes access to them (REQ-044).
 
 ## 9. Deletion, trash & retention
 
-- Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge runs as a scheduled job rather than plain DynamoDB TTL, so each scope's purge horizon advances with the deletions; the same job cleans up media files. Deletion records are kept for a retention period after the trash window, and a device whose cursor is older than that resyncs the affected scope (REQ-062, ADR-0003).
+- Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge runs as a scheduled job rather than plain DynamoDB TTL, so each scope's purge horizon advances with the deletions; the same job cleans up media files, and public video copies whose album no longer has an active link (ADR-0006). Deletion records are kept for a retention period after the trash window, and a device whose cursor is older than that resyncs the affected scope (REQ-062, ADR-0003).
 - The client **evicts full-resolution originals after confirmed upload**, keeping only previews; originals are re-downloaded on demand when online, and shown as preview-with-indicator when offline (REQ-049–REQ-051).
 - When local storage nears quota, the client surfaces the condition and applies eviction rather than failing silently (REQ-021).
 
 ## 10. Cross-cutting concerns
 
 - **Security:** scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
-- **Privacy:** location stripping on all publicly served media (REQ-016, REQ-041).
+- **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as location-free copies; geotags never appear in public responses. Album members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067).
 - **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
 - **Observability:** structured JSON logs (`tracing`) to CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
 - **Cost:** scale-to-zero stack (Lambda + DynamoDB on-demand + S3); main variable cost is media storage and egress.
@@ -264,7 +270,7 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 | [ADR-0003](adr/0003-sync-scopes.md) | Change feed: numbered feeds per sync scope (personal and per album) | Accepted |
 | [ADR-0004](adr/0004-conflict-versioning.md) | Conflict detection: per-field hybrid logical clock stamps | Accepted |
 | [ADR-0005](adr/0005-toolchain-and-deployment.md) | Toolchain and deployment: CDK (TypeScript), cargo-lambda, axum per concern, CloudFront, GitHub Actions | Accepted |
-| ADR-0006 | Public media sanitization: strip-on-serve vs pre-generated derivative | Open |
+| [ADR-0006](adr/0006-public-media-location.md) | Location privacy on public links: previews only, location-free video copies | Accepted |
 
 ## 12. Next documents
 - `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
