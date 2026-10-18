@@ -49,6 +49,8 @@
 - **REQ-029** — WHILE syncing, the app SHALL display sync status/progress to the user.
 - **REQ-052** — WHILE measured upload throughput is below the configured threshold, the sync engine SHALL defer full-resolution uploads (lane 3) and continue syncing text and previews.
 - **REQ-053** — WHEN the user chooses "upload originals now", THEN the sync engine SHALL start full-resolution uploads regardless of REQ-052; WHEN the user chooses "hold originals", THEN it SHALL NOT upload them until the user releases the hold.
+- **REQ-061** — WHILE the app is open and online, it SHALL pull changes when it opens or regains focus, when connectivity returns, after each push, and at a periodic interval.
+- **REQ-062** — IF a device's sync position for some content is older than the server's deletion-record retention, THEN the app SHALL resynchronize that content and SHALL NOT discard unsynced local changes.
 
 ## 6. Conflict Resolution
 - **REQ-030** — WHEN the server detects an incoming update targeting an item modified concurrently (diverged versions), THEN it SHALL flag a conflict rather than silently overwriting.
@@ -65,6 +67,8 @@
 - **REQ-039** — WHEN a contributor adds a photo/note to a shared album, THEN it SHALL appear to other members after sync.
 - **REQ-040** — A contributor SHALL be able to edit/delete only their own contributed items, not items owned by others.
 - **REQ-041** — WHILE viewing a shared album via a public link, viewers SHALL NOT see precise location data (per REQ-016).
+- **REQ-059** — WHEN a member loses access to an album, THEN the items that member contributed SHALL return to their personal library, and their devices SHALL delete their local copies of the album's remaining content.
+- **REQ-060** — WHEN an owner deletes an album, THEN the app SHALL NOT delete its items; every item SHALL return to its owner's personal library.
 
 ## 8. Social Interaction
 - **REQ-042** — WHEN a viewer with access comments on a shared album/photo, THEN the comment SHALL sync and become visible to other members.
