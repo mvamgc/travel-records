@@ -4,6 +4,7 @@
 - **Date:** 2026-10-14
 - **Resolves:** HLD §4 open decision on the change feed; HLD §11 ADR-0003
 - **Changes requirements:** adds REQ-059 to REQ-062
+- **Amended by:** [ADR-0007](0007-travels.md) (travel scopes; copies of item metadata in travel entries)
 
 ## Context
 
@@ -45,6 +46,8 @@ Most records live in exactly one scope. A record that concerns two parties has o
 
 - a membership: in the album scope and in the member's personal scope;
 - a friendship: in both users' personal scopes.
+
+*Amended by ADR-0007:* travels are scopes too (`travel#{travelId}`). A travel entry carries a copy of its item's metadata, which the server rewrites in the same transaction whenever the item changes. The item's own record stays the single source.
 
 Moving an item into, out of or between albums (REQ-009) is one transaction. The item leaves the old scope, leaving a *moved-out* marker behind, and enters the new scope.
 
