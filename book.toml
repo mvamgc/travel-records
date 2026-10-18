@@ -1,0 +1,27 @@
+[book]
+title = "Travel Records: Design Documentation"
+authors = ["Vasiliy Malakhov"]
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "target/book"
+
+# PDF via pandoc + typst. Filters render Mermaid diagrams and adjust page layout;
+# style.typ holds typst show rules. See docs/pandoc/.
+[output.pandoc.profile.pdf]
+output-file = "travel-records.pdf"
+to = "typst"
+pdf-engine = "typst"
+filters = ["docs/pandoc/mermaid.lua", "docs/pandoc/layout.lua"]
+include-in-header = ["docs/pandoc/style.typ"]
+
+[output.pandoc.profile.pdf.variables]
+papersize = "a4"
+fontsize = "10pt"
+linkcolor = "\\#1a5fb4"
+filecolor = "\\#1a5fb4"
+
+[output.pandoc.profile.pdf.variables.margin]
+x = "20mm"
+y = "22mm"
