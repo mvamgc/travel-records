@@ -4,7 +4,7 @@
 - **Date:** 2026-10-14
 - **Resolves:** HLD §4 open decision on the change feed; HLD §11 ADR-0003
 - **Changes requirements:** adds REQ-059 to REQ-062
-- **Amended by:** [ADR-0007](0007-travels.md) (travel scopes; copies of item metadata in travel entries)
+- **Amended by:** [ADR-0007](0007-travels.md) (travel scopes; copies of item metadata in travel entries); [ADR-0008](0008-items-in-many-albums.md) (items always live in their owner's personal scope; albums hold entries)
 
 ## Context
 
@@ -47,7 +47,7 @@ Most records live in exactly one scope. A record that concerns two parties has o
 - a membership: in the album scope and in the member's personal scope;
 - a friendship: in both users' personal scopes.
 
-*Amended by ADR-0007:* travels are scopes too (`travel#{travelId}`). A travel entry carries a copy of its item's metadata, which the server rewrites in the same transaction whenever the item changes. The item's own record stays the single source.
+*Amended by ADR-0007 and ADR-0008:* items always live in their owner's personal scope. Album scopes, and travel scopes (`travel#{travelId}`), hold entries instead. Each entry carries a copy of its item's metadata, which the server rewrites in the same transaction whenever the item changes; the item's own record stays the single source. Adding an item to an album, or removing it, only creates or removes an entry, so the moved-out markers described next are no longer needed.
 
 Moving an item into, out of or between albums (REQ-009) is one transaction. The item leaves the old scope, leaving a *moved-out* marker behind, and enters the new scope.
 
@@ -98,6 +98,8 @@ When the owner removes a member, or deletes the album:
 - **The removed member's devices** delete their local copy of the album, except for records the member owns. Those stay until they arrive in the personal scope.
 
 What happens to a removed member's comments on items that stay in the album is left to the sharing LLD. For now they remain.
+
+*Amended by ADR-0008:* items never leave their owner's personal scope. Losing access, or deleting an album, therefore only removes entries; nothing is moved back.
 
 ### 6. Purge horizon and resync
 

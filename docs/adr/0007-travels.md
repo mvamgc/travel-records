@@ -5,6 +5,7 @@
 - **Resolves:** introduces the Travel concept
 - **Changes requirements:** amends REQ-009, REQ-065, REQ-066; adds REQ-068 to REQ-078
 - **Amends:** [ADR-0003](0003-sync-scopes.md) (travel entries carry copies of item metadata in travel scopes)
+- **Amended by:** [ADR-0008](0008-items-in-many-albums.md) (items can be in several albums too; the per-item cap counts albums and travels together)
 
 ## Context
 
@@ -19,7 +20,7 @@ A **Travel** is a trip with a start and an end:
 This collides with two existing rules:
 
 - **A photo is in at most one album** (REQ-009). Overlapping travels mean one photo can be in several travels at once.
-- **Every record lives in exactly one sync scope** (ADR-0003). Members of a shared travel must see photos whose records live elsewhere, in the owner's personal scope or in an album scope.
+- **Every record lives in exactly one sync scope** (ADR-0003). Members of a shared travel must see photos whose records live in other scopes.
 
 Auto-add also has to work offline, on each of the owner's devices, and those devices must reach the same result.
 
@@ -49,7 +50,7 @@ Each travel has a scope, `travel#{travelId}`, holding:
 
 As with albums, a device discovers travels through membership records in the user's personal scope (ADR-0003). The owner has a membership record too.
 
-Albums don't change: an item is still in at most one album, and it can also be in any number of travels (REQ-070).
+An item can be in any number of travels (REQ-070). Since ADR-0008 it can also be in any number of albums, and albums use the same entry mechanism.
 
 ### 2. Membership through travel entries
 
@@ -60,7 +61,7 @@ A `TravelEntry` record in the travel scope links one item to one travel.
 - **A copy of the item's metadata** (caption, times, geotag, media state) goes in the entry, so members can see the item without reading its home scope.
   - The item's own record stays the single source of truth. Conflicts are detected only there (ADR-0004), and nobody edits the copies.
   - When an item changes, the server rewrites the copy in every entry for that item, in the same transaction as the item and including each travel scope's head.
-  - A DynamoDB transaction holds at most 100 actions, so an item can be in at most a capped number of travels (Parameters).
+  - A DynamoDB transaction holds at most 100 actions, so an item can be in at most a capped number of albums and travels together (ADR-0008).
 - **Media access:** the server issues presigned URLs to anyone who can read a scope containing the item: its home scope, or a travel scope with an entry for it.
 
 This amends ADR-0003 decision 1. Besides records that concern two parties, an item's metadata can now also appear as copies in travel scopes.
@@ -137,7 +138,7 @@ The review can be done offline. Sharing needs the network anyway (REQ-003), so i
   - travels reuse scopes, conflicts and public-link privacy as they are.
 - **Bad:**
   - every edit to an item also rewrites its entry in each travel it's in;
-  - there is a cap on travels per item;
+  - there is a cap on albums and travels per item (ADR-0008);
   - each travel is one more scope for pulls to read;
   - entries duplicate item metadata;
   - the client needs a full-size review screen and logic to re-apply the rule.
@@ -148,11 +149,7 @@ The review can be done offline. Sharing needs the network anyway (REQ-003), so i
 
 ## Parameters
 
-Initial values, to be pinned in `docs/ear.md`:
-
-| Parameter | Initial value | Basis |
-|---|---|---|
-| Maximum travels per item | 20 | The item, its scope head, and one entry plus one head per travel must fit in a 100-action transaction, with room to spare. |
+The cap on travels per item is defined in [ADR-0008](0008-items-in-many-albums.md), which counts albums and travels together.
 
 ## Validation spike
 

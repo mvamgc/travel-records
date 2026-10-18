@@ -20,7 +20,7 @@
 
 ## 2. Content Model (Albums, Photos, Videos, Notes)
 - **REQ-008** — WHEN a user creates an album, THEN the app SHALL assign a client-generated unique ID usable offline.
-- **REQ-009** — WHEN a user adds a photo or video, THEN the app SHALL allow an optional caption and association with zero or one album, and with any number of travels (REQ-070).
+- **REQ-009** — WHEN a user adds a photo or video, THEN the app SHALL allow an optional caption and association with any number of albums and travels (ADR-0008).
 - **REQ-010** — A note SHALL be creatable as (a) a standalone journal entry, (b) a caption on a photo/video, or (c) a note attached to an album.
 - **REQ-011** — WHEN a user records a video, IF the clip exceeds 30 seconds, THEN the app SHALL prevent saving it (or require trimming) to enforce the short-video limit.
 - **REQ-012** — WHEN any record is created or edited offline, THEN it SHALL persist to local storage immediately without requiring connectivity.
@@ -71,8 +71,8 @@
 - **REQ-039** — WHEN a contributor adds a photo/note to a shared album, THEN it SHALL appear to other members after sync.
 - **REQ-040** — A contributor SHALL be able to edit/delete only their own contributed items, not items owned by others.
 - **REQ-041** — WHILE viewing a shared album via a public link, viewers SHALL NOT see precise location data (per REQ-016).
-- **REQ-059** — WHEN a member loses access to an album, THEN the items that member contributed SHALL return to their personal library, and their devices SHALL delete their local copies of the album's remaining content.
-- **REQ-060** — WHEN an owner deletes an album, THEN the app SHALL NOT delete its items; every item SHALL return to its owner's personal library.
+- **REQ-059** — WHEN a member loses access to an album, THEN the items that member contributed SHALL be removed from the album while staying in the member's personal library, and their devices SHALL delete their local copies of the album's remaining content.
+- **REQ-060** — WHEN an owner deletes an album, THEN the app SHALL NOT delete its items; they SHALL stay in their owners' libraries and in any other albums and travels.
 - **REQ-066** — WHEN an album or travel is viewed via a public link, THEN photos SHALL be served only as downsized previews and videos only as copies with location metadata removed, and no location data, precise or approximate, SHALL be shown.
 
 ## 8. Social Interaction
@@ -92,7 +92,7 @@
 ## 10. Travels
 - **REQ-068** — WHEN a user creates a travel, THEN the app SHALL record its title, description, and start and end dates (optionally with times), whether the trip is in the future, in progress or over, and SHALL work offline (ADR-0007).
 - **REQ-069** — The user SHALL be able to edit all of a travel's information before, during and after the trip.
-- **REQ-070** — A user SHALL be able to have several travels, including travels whose dates overlap; an item SHALL be able to belong to any number of travels, independently of its album.
+- **REQ-070** — A user SHALL be able to have several travels, including travels whose dates overlap; an item SHALL be able to belong to any number of travels, independently of its albums.
 - **REQ-071** — WHILE a travel is private, the app SHALL automatically include in it every photo, video and note of the owner whose local capture time, or local time of being added to the app, falls within the travel's dates.
 - **REQ-072** — The owner SHALL be able to remove an automatically included item from a travel and to add items from outside its dates; the app SHALL keep these choices whenever it re-applies REQ-071.
 - **REQ-073** — WHEN a travel's dates or an item's capture time change, THEN the app SHALL re-apply REQ-071, subject to REQ-072.
@@ -101,6 +101,7 @@
 - **REQ-076** — WHEN a private travel is shared or gets a public link, THEN the app SHALL first have the owner review, in full size, every item already in it, and SHALL remove declined items before anyone else can see the travel.
 - **REQ-077** — An item declined for a travel SHALL NOT be offered again for that travel, and SHALL NOT be visible to the travel's other members in any form.
 - **REQ-078** — WHEN a travel is deleted, THEN the app SHALL NOT delete its items.
+- **REQ-079** — WHEN a user creates an album from travels, THEN the app SHALL let the user select one or more travels, SHALL offer only the user's own photos, videos and notes from those travels, and SHALL add the chosen items to the new album (ADR-0008).
 
 ## Non-goals (explicitly out of scope)
 - Native iOS/Android apps — web PWA only for the POC.

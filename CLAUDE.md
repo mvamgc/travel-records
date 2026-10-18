@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 An early-stage POC, still in the design phase. There is **no application code yet**: the repository holds the design documentation and the tooling that builds it into a PDF.
 
-- **Done:** requirements, the high-level design, and ADR-0001 to ADR-0007 (all Accepted).
+- **Done:** requirements, the high-level design, and ADR-0001 to ADR-0008 (all Accepted).
 - **Next:**
   1. the validation spikes listed at the end of each ADR;
   2. LLDs in `docs/lld/`: data model, sync, media upload, and auth/migration (including the sign-in UI, still open in ADR-0002);
@@ -30,10 +30,11 @@ Treat offline operation and staged, resumable sync as primary requirements in al
 | Client | Leptos CSR PWA (WASM). All local data lives in IndexedDB. An outbox drains in three lanes: text, then previews, then originals. | HLD §2, §4 |
 | Media upload | Small resumable chunks through Lambda, addressed by byte offset (`Upload-*` headers), joined by `media-assembler`. | ADR-0001 |
 | Identity | Guests are local-only. Guest data migrates on sign-in; sign-out clears the device. | ADR-0002 |
-| Pull sync | Numbered change feeds per sync scope (one personal scope per user, one per album). | ADR-0003 |
+| Pull sync | Numbered change feeds per sync scope (one personal scope per user, one per album, one per travel). | ADR-0003 |
 | Conflicts | Per-field hybrid logical clock stamps; only concurrent edits to the same field conflict. | ADR-0004 |
 | Toolchain | Rust workspace, axum on Lambda (arm64), CDK in TypeScript, CloudFront as the single origin, GitHub Actions with OIDC. | ADR-0005 |
 | Public links | Photos as previews only; videos as location-free copies. | ADR-0006 |
+| Albums | Items always live in their owner's personal scope. Albums, like travels, hold entries with metadata copies, so an item can be in many albums. | ADR-0008 |
 | Travels | Overlapping time-based collections. Private travels auto-add items by local capture or added time; shared and public ones need full-size approval per item. | ADR-0007 |
 
 ## Documentation
