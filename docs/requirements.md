@@ -24,7 +24,7 @@
 - **REQ-010** — A note SHALL be creatable as (a) a standalone journal entry, (b) a caption on a photo/video, or (c) a note attached to an album.
 - **REQ-011** — WHEN a user records a video, IF the clip exceeds 30 seconds, THEN the app SHALL prevent saving it (or require trimming) to enforce the short-video limit.
 - **REQ-012** — WHEN any record is created or edited offline, THEN it SHALL persist to local storage immediately without requiring connectivity.
-- **REQ-013** — Each content item SHALL carry creation and last-modified timestamps plus a version marker sufficient to detect conflicts.
+- **REQ-013** — Each record SHALL carry creation and last-modified timestamps, and each of its fields SHALL carry a hybrid logical clock stamp of its last change, sufficient to detect conflicting edits per field (ADR-0004).
 
 ## 3. Location & Maps
 - **REQ-014** — WHEN a photo/video/note is captured, IF device location is available and permitted, THEN the app SHALL store the geotag with the record.
@@ -53,10 +53,12 @@
 - **REQ-062** — IF a device's sync position for some content is older than the server's deletion-record retention, THEN the app SHALL resynchronize that content and SHALL NOT discard unsynced local changes.
 
 ## 6. Conflict Resolution
-- **REQ-030** — WHEN the server detects an incoming update targeting an item modified concurrently (diverged versions), THEN it SHALL flag a conflict rather than silently overwriting.
-- **REQ-031** — WHEN a conflict is detected, THEN the app SHALL present both versions and prompt the user to choose which to keep.
+- **REQ-030** — WHEN an incoming update changes a field that was changed concurrently since the version the update was based on, THEN the server SHALL flag a conflict for that field rather than silently overwriting; concurrent changes to different fields SHALL be merged.
+- **REQ-031** — WHEN a conflict is detected, THEN the app SHALL present both values of each conflicting field, with when each was edited, and prompt the user to choose which to keep.
 - **REQ-032** — WHILE a conflict is unresolved, the app SHALL preserve both local and server versions and SHALL NOT discard either.
 - **REQ-033** — WHEN the user resolves a conflict, THEN the chosen result SHALL sync to the server and propagate to the user's other devices.
+- **REQ-063** — WHEN an edit arrives for an item that was deleted concurrently, THEN the edit SHALL be applied to the item in the trash without prompting, and the editing device SHALL notify the user that the item is in the trash.
+- **REQ-064** — IF a sync operation is retried after its result was lost, THEN the server SHALL recognise it as already applied and SHALL NOT report a conflict.
 
 ## 7. Sharing & Collaboration
 - **REQ-034** — WHEN a signed-in user shares an album with a friend, THEN that friend SHALL gain access per the album's permission (view or contribute).
@@ -86,7 +88,7 @@
 
 ## Non-goals (explicitly out of scope)
 - Native iOS/Android apps — web PWA only for the POC.
-- Real-time collaborative co-editing / CRDT auto-merge of the same item.
+- Real-time collaborative co-editing, and merging concurrent edits within a single field (e.g. text merge). Edits to different fields of a record merge automatically (ADR-0004).
 - Audio notes; long-form video (>30 s); video transcoding/adaptive streaming.
 - Content moderation, reporting, or takedown of public content.
 - Public discovery feed, profiles, search, or a social graph beyond direct friends.

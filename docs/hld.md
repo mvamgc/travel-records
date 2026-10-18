@@ -100,9 +100,15 @@ Operations drain in **three staged lanes** (REQ-024):
 
 Media uploads (lanes 2 and 3) run up to three files in parallel, each one sequentially (ADR-0001).
 
-Each push carries the entity's `version`. The server applies it with a **conditional write** on that version:
-- **Match →** apply, bump version, and take the scope's next change number in the same transaction (ADR-0003).
-- **Mismatch →** reject as a conflict; the client keeps both local and server copies and prompts the user (REQ-030–REQ-033).
+Each push carries the changed fields, the hybrid logical clock (HLC) stamp of the edit, and for each field the stamp the device based its edit on. The server applies it with a **conditional write** (ADR-0004):
+- **Every changed field's stamp still equals its base →** apply, stamp the fields, and take the scope's next change number in the same transaction (ADR-0003).
+- **A changed field was also changed concurrently →** reject as a conflict for those fields. The client keeps both values and prompts the user field by field (REQ-030–REQ-033).
+- **Never conflicts:**
+  - edits to different fields, including server-side ones such as media state;
+  - an edit to an item deleted elsewhere, which lands on the item in the trash (REQ-063);
+  - a retried push whose stamp the record already lists, which is answered as applied (REQ-064).
+
+Several offline edits to the same record coalesce into one push.
 
 Failures are retried with backoff; queued ops persist until acknowledged or cancelled (REQ-028). Sync status/progress is surfaced to the UI (REQ-029).
 
@@ -111,15 +117,15 @@ sequenceDiagram
   participant C as Client outbox
   participant A as Lambda sync
   participant D as DynamoDB
-  C->>A: push(op, entityId, version=N)
-  A->>D: transaction: scope head n to n+1, record seq = n+1, version == N
-  alt version matches
-    D-->>A: ok (version=N+1, seq=n+1)
-    A-->>C: applied(version=N+1)
-  else version diverged
-    D-->>A: condition failed
-    A-->>C: conflict(serverVersion)
-    Note over C: keep both, prompt user (REQ-031)
+  C->>A: push(entityId, changed fields, stamp h, base stamps)
+  A->>D: transaction: scope head n to n+1, record seq = n+1, each changed field stamp == base
+  alt no changed field moved on
+    D-->>A: ok (fields stamped h, seq=n+1)
+    A-->>C: applied(h)
+  else a changed field was changed concurrently
+    D-->>A: condition failed (current record)
+    A-->>C: conflict(fields, server values and stamps)
+    Note over C: keep both values, prompt per field (REQ-031)
   end
   Note over A,D: if another write took n+1 first,<br/>re-read the head and retry
 ```
@@ -137,7 +143,7 @@ Each scope numbers its changes. A record carries the number of its latest change
 - Devices pull on open, on focus, on reconnect, after each push, and on a timer (REQ-061).
 - Media bytes are fetched lazily via presigned GET URLs on demand (REQ-050).
 
-> **Decided: [ADR-0003](adr/0003-sync-scopes.md).** Numbered change feeds per sync scope. **Open decision (ADR-0004):** versioning scheme — monotonic integer vs hybrid logical clock — given the prompt-to-resolve model, a per-item monotonic version is the leading candidate.
+> **Decided: [ADR-0003](adr/0003-sync-scopes.md).** Numbered change feeds per sync scope. **Decided: [ADR-0004](adr/0004-conflict-versioning.md).** Per-field HLC stamps; only concurrent changes to the same field conflict.
 
 ## 5. Backend (Rust on Lambda)
 
@@ -161,14 +167,14 @@ Single-table design; full key schema and indexes are deferred to `docs/lld/data-
 |---|---|
 | **User** | account profile, settings |
 | **Album** | owner, title, permission mode |
-| **Item** | photo / video / note; `albumId?`, caption, geotag, `version`, timestamps, `deletedAt?` (tombstone), media state per representation (`uploading` → `available`) |
+| **Item** | photo / video / note; `albumId?`, caption, geotag, per-field HLC stamps, timestamps, `deletedAt?` (tombstone), media state per representation (`uploading` → `available`) |
 | **Membership** | which user has which role (owner/contributor/viewer) on an album; one copy in the album scope, one in the member's personal scope |
 | **FriendEdge** | friend relationship + state (pending/accepted); one copy in each user's personal scope |
 | **PublicLink** | token, albumId, `expiresAt?`, `revoked` |
 | **Comment / Reaction** | attached to album or item |
 | **ScopeHead** | number of the last committed change in a sync scope (ADR-0003) |
 
-Key access patterns the schema must serve: list albums by owner; list items by album; read a scope's records in change order from a cursor; resolve a public token → album + items; list a user's friends; comments/reactions by target. Items carry a `version` for conflict detection (REQ-013) and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
+Key access patterns the schema must serve: list albums by owner; list items by album; read a scope's records in change order from a cursor; resolve a public token → album + items; list a user's friends; comments/reactions by target. Every record carries per-field HLC stamps and the stamps of its last few applied operations, for conflict detection and retry recognition (REQ-013, ADR-0004), and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
 
 ## 7. Media storage & chunked upload
 
@@ -237,7 +243,7 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 
 - **Security:** scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM.
 - **Privacy:** location stripping on all publicly served media (REQ-016, REQ-041).
-- **Resilience:** idempotent sync operations (client-generated IDs make retries safe); backoff + durable outbox (REQ-028).
+- **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
 - **Observability:** structured logs + CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
 - **Cost:** scale-to-zero stack (Lambda + DynamoDB on-demand + S3); main variable cost is media storage and egress.
 
@@ -248,11 +254,11 @@ Precise location must not leak on public links (REQ-016, REQ-041). Previews are 
 | [ADR-0001](adr/0001-resumable-media-upload.md) | Resumable media upload: small chunks staged in S3, joined by `media-assembler` | Accepted |
 | [ADR-0002](adr/0002-guest-identity.md) | Guest identity: local-only guest, migration with confirmation, sign-out clears the device | Accepted |
 | [ADR-0003](adr/0003-sync-scopes.md) | Change feed: numbered feeds per sync scope (personal and per album) | Accepted |
-| ADR-0004 | Conflict versioning: monotonic integer vs hybrid logical clock | Open |
+| [ADR-0004](adr/0004-conflict-versioning.md) | Conflict detection: per-field hybrid logical clock stamps | Accepted |
 | ADR-0005 | IaC + Rust Lambda toolchain: SAM vs CDK; `axum` vs `lambda_runtime` | Open |
 | ADR-0006 | Public media sanitization: strip-on-serve vs pre-generated derivative | Open |
 
 ## 12. Next documents
 - `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
-- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, pull page size, periodic pull interval, deletion-record retention; ADR-0001 to ADR-0003 propose initial values).
+- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record; ADR-0001 to ADR-0004 propose initial values).
 - `docs/adr/` — the decisions in §11.
