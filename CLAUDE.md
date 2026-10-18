@@ -26,3 +26,11 @@ Rules to follow:
 
 - When implementing a feature, **read the relevant LLD and `docs/ear.md` first**.
 - When a design decision changes, **update the relevant ADR/LLD in the same PR** as the code change.
+
+## Documentation book (PDF)
+
+The docs build into one PDF with mdBook, mdbook-pandoc and typst (`book.toml`, `docs/SUMMARY.md`, `docs/pandoc/`).
+
+- **Add every new document** (LLDs, `docs/ear.md`, new ADRs) to `docs/SUMMARY.md`, or it won't appear in the PDF.
+- Build locally with `mdbook build`; the output is `target/book/pdf/travel-records.pdf`. It needs pandoc, typst, mdbook, mdbook-pandoc and Node. Mermaid diagrams are rendered by mermaid-cli, through `npx` or the command in `$MMDC`.
+- CI (`.github/workflows/docs.yml`) builds the PDF for pull requests and pushes to `main` that touch the docs, and uploads it as the `travel-records-docs` artifact.

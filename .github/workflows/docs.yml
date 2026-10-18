@@ -1,0 +1,76 @@
+name: Docs PDF
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "readme.md"
+      - "book.toml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "readme.md"
+      - "book.toml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PANDOC_VERSION: "3.12.1"
+  TYPST_VERSION: "0.15.1"
+  MDBOOK_VERSION: "0.5.4"
+  MDBOOK_PANDOC_VERSION: "0.11.1"
+  MERMAID_CLI_VERSION: "11.4.2"
+
+jobs:
+  pdf:
+    name: Build PDF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pandoc
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/pandoc.deb" \
+            "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          sudo dpkg -i "$RUNNER_TEMP/pandoc.deb"
+          pandoc --version | head -1
+
+      - name: Install typst
+        run: |
+          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP"
+          sudo install "$RUNNER_TEMP/typst-x86_64-unknown-linux-musl/typst" /usr/local/bin/typst
+          typst --version
+
+      - name: Install mdBook and mdbook-pandoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@${{ env.MDBOOK_VERSION }},mdbook-pandoc@${{ env.MDBOOK_PANDOC_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install mermaid-cli
+        run: npm install -g "@mermaid-js/mermaid-cli@${MERMAID_CLI_VERSION}"
+
+      - name: Build PDF
+        env:
+          MMDC: mmdc
+        run: mdbook build
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: travel-records-docs
+          path: target/book/pdf/travel-records.pdf
+          if-no-files-found: error
