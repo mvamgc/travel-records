@@ -2,13 +2,13 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-18
-- **Resolves:** letting an item be in several albums, and creating albums from travels
-- **Changes requirements:** amends REQ-009, REQ-059, REQ-060, REQ-070; adds REQ-079
+- **Resolves:** letting an item be in several albums, and building albums from travels
+- **Changes requirements:** amends REQ-009, REQ-059, REQ-060, REQ-070; adds REQ-079 and REQ-080
 - **Amends:** [ADR-0003](0003-sync-scopes.md) (where items live, and what losing access does); [ADR-0007](0007-travels.md) (the per-item cap now counts albums too)
 
 ## Context
 
-A user wants to **create an album from travels**: pick one or more travels, then choose items from those travels only. The same photo will often belong in several albums, for example "Rome" and "Best of Italy". So an item must be able to be in **any number of albums**, not at most one (REQ-009).
+A user wants to **build albums from travels**: create a new album, or add to an existing one, by picking one or more travels and choosing items from those travels only. The same photo will often belong in several albums, for example "Rome" and "Best of Italy". So an item must be able to be in **any number of albums**, not at most one (REQ-009).
 
 Until now, an item in an album *lived in* that album's sync scope (ADR-0003). Several things depended on that:
 
@@ -50,15 +50,20 @@ Comments and reactions on an item in an album are attached to its entry. They ex
 - **A member losing access** has their entries removed. Their items never left their library (REQ-059). A member can have many entries, so the `access-loss` job removes them in batches.
 - **Deleting an album** tombstones the album and its entries. No item is deleted, and items stay in their owners' libraries and in any other albums and travels (REQ-060).
 
-### 4. Creating an album from travels
+### 4. Albums from travels
 
-The user picks one or more travels, then chooses items to put in the new album (REQ-079):
+From travels that are in progress or finished, the user can:
+
+- **create a new album** (REQ-079): pick one or more travels, then choose items for the album;
+- **add to an existing album** (REQ-080): pick one or more travels, then choose from their items that aren't in that album yet.
+
+In both cases:
 
 - The picker shows **only the user's own** photos, videos and notes in the selected travels. Other members' items in a shared travel are visible but can't be picked, because they belong to their owners (REQ-040).
 - Each chosen item gets an album entry; notes become notes attached to the album (REQ-010).
-- The album keeps no link to the travels it was made from. It's an ordinary album from then on.
+- The album keeps no link to the travels. Adding from travels again later simply offers whatever isn't in the album yet.
 
-Like any album, it can be created offline; the entries sync later.
+Like any album change, this works offline; the entries sync later.
 
 ## Considered options
 
@@ -98,5 +103,5 @@ The ADR-0007 spike covers this too: one transaction that updates an item and its
 
 ## References
 
-- [HLD](../hld.md) §2, §4, §5, §6, §8; [requirements](../requirements.md) REQ-009, REQ-010, REQ-039, REQ-040, REQ-059, REQ-060, REQ-070, REQ-079.
+- [HLD](../hld.md) §2, §4, §5, §6, §8; [requirements](../requirements.md) REQ-009, REQ-010, REQ-039, REQ-040, REQ-059, REQ-060, REQ-070, REQ-079, REQ-080.
 - [ADR-0003](0003-sync-scopes.md) (scopes), [ADR-0004](0004-conflict-versioning.md) (conflicts), [ADR-0007](0007-travels.md) (the entry mechanism).

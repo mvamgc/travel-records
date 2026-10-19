@@ -68,7 +68,7 @@ graph TD
 - **Outbox pattern:** every mutation writes the entity to IndexedDB **and** appends an operation to the outbox in one logical step (REQ-012). The UI reflects the local write immediately; the sync engine propagates it later. While the user is a guest, changes are not queued; migration queues the current state (§3).
 - **Client-generated IDs:** entities get client-side UUIDs at creation so they are referenceable offline and stable across sync (REQ-008).
 - **Media pipeline (client):** on capture, the client produces a **downsized preview** (and strips location from it) and keeps the **original**. Preview + original are both stored locally and queued for staged upload (REQ-024, REQ-025).
-- **Travels (client):** the owner's devices apply the auto-add rule offline. An item joins a private travel when its local capture time or local added time falls within the travel's dates, unless the owner excluded it. The rule re-runs when items are added, capture times change or dates change. Shared and public travels get a full-size review queue instead (REQ-071–REQ-077, ADR-0007). An album can be created from travels by picking the user's own items in the selected travels (REQ-079).
+- **Travels (client):** the owner's devices apply the auto-add rule offline. An item joins a private travel when its local capture time or local added time falls within the travel's dates, unless the owner excluded it. The rule re-runs when items are added, capture times change or dates change. Changing the dates of a private travel that is in progress or finished first shows how many items will be added and removed (REQ-081). Shared and public travels get a full-screen review queue instead (REQ-071–REQ-077, REQ-082, ADR-0007). Albums can be created, or extended, from travels in progress or finished, by picking the user's own items (REQ-079, REQ-080).
 
 ## 3. Identity & auth
 
@@ -251,7 +251,8 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 - **Friends graph** — request / accept / remove between accounts (REQ-035).
 - **Album shares** — grant a friend `viewer` or `contributor` via a Membership record (REQ-034). Contributors add their own items and may edit/delete only those (REQ-039, REQ-040), enforced server-side by owner checks. An item can be in any number of albums, through entries (ADR-0008). When a member loses access, their entries are removed and the items stay in their library (REQ-059). Deleting an album removes its entries and deletes no items (REQ-060).
 - **Travels** — shared like albums, with `viewer` and `contributor` roles and public links (REQ-074). An item can be in any number of travels, through entries (REQ-070).
-  - While a travel is shared or public, nothing is added automatically. Each item's owner approves candidates one by one, at full size (REQ-075).
+  - While a travel is shared or public, nothing is added automatically. Each item's owner approves candidates one by one, full screen (REQ-075).
+  - Narrowing a shared travel's dates never removes entries silently; the owner is offered to remove the ones now outside (REQ-082).
   - Sharing a private travel first runs that review over the items already in it (REQ-076).
   - Skipped items are recorded only in the owner's personal scope (REQ-077).
   - A member who loses access loses their entries; the items stay in their library (ADR-0007).

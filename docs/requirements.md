@@ -96,12 +96,15 @@
 - **REQ-071** — WHILE a travel is private, the app SHALL automatically include in it every photo, video and note of the owner whose local capture time, or local time of being added to the app, falls within the travel's dates.
 - **REQ-072** — The owner SHALL be able to remove an automatically included item from a travel and to add items from outside its dates; the app SHALL keep these choices whenever it re-applies REQ-071.
 - **REQ-073** — WHEN a travel's dates or an item's capture time change, THEN the app SHALL re-apply REQ-071, subject to REQ-072.
+- **REQ-081** — WHEN the owner changes the dates of a private travel that is in progress or finished, THEN the app SHALL first show how many items the new dates will add and remove, and SHALL apply the change only if the owner confirms; items added by hand SHALL NOT be removed.
+- **REQ-082** — WHEN the owner changes the dates of a shared or public travel, THEN the app SHALL NOT add or remove items automatically: items that newly qualify SHALL go to their owners for approval (REQ-075), and IF entries fall outside the new dates, THEN the app SHALL offer the owner to remove them.
 - **REQ-074** — A travel SHALL be shareable with friends and through public links in the same way as an album; REQ-034–REQ-044, REQ-059 and REQ-066 SHALL apply to travels.
-- **REQ-075** — WHILE a travel is shared or has an active public link, the app SHALL NOT add items to it automatically; WHEN an item qualifies under REQ-071, THEN the app SHALL show it in full size to the item's owner and add it only if the owner approves.
-- **REQ-076** — WHEN a private travel is shared or gets a public link, THEN the app SHALL first have the owner review, in full size, every item already in it, and SHALL remove declined items before anyone else can see the travel.
+- **REQ-075** — WHILE a travel is shared or has an active public link, the app SHALL NOT add items to it automatically; WHEN an item qualifies under REQ-071, THEN the app SHALL show it full screen, in good resolution, to the item's owner and add it only if the owner approves.
+- **REQ-076** — WHEN a private travel is shared or gets a public link, THEN the app SHALL first have the owner review, full screen, every item already in it, and SHALL remove declined items before anyone else can see the travel.
 - **REQ-077** — An item declined for a travel SHALL NOT be offered again for that travel, and SHALL NOT be visible to the travel's other members in any form.
 - **REQ-078** — WHEN a travel is deleted, THEN the app SHALL NOT delete its items.
-- **REQ-079** — WHEN a user creates an album from travels, THEN the app SHALL let the user select one or more travels, SHALL offer only the user's own photos, videos and notes from those travels, and SHALL add the chosen items to the new album (ADR-0008).
+- **REQ-079** — WHEN a user creates an album from travels, THEN the app SHALL let the user select one or more travels that are in progress or finished, SHALL offer only the user's own photos, videos and notes from those travels, and SHALL add the chosen items to the new album (ADR-0008).
+- **REQ-080** — WHEN a user adds items to an existing album from travels, THEN the app SHALL let the user select one or more travels that are in progress or finished, SHALL offer only the user's own photos, videos and notes from those travels that are not already in the album, and SHALL add the chosen items to it.
 
 ## Non-goals (explicitly out of scope)
 - Native iOS/Android apps — web PWA only for the POC.

@@ -35,7 +35,7 @@ Treat offline operation and staged, resumable sync as primary requirements in al
 | Toolchain | Rust workspace, axum on Lambda (arm64), CDK in TypeScript, CloudFront as the single origin, GitHub Actions with OIDC. | ADR-0005 |
 | Public links | Photos as previews only; videos as location-free copies. | ADR-0006 |
 | Albums | Items always live in their owner's personal scope. Albums, like travels, hold entries with metadata copies, so an item can be in many albums. | ADR-0008 |
-| Travels | Overlapping time-based collections. Private travels auto-add items by local capture or added time; shared and public ones need full-size approval per item. | ADR-0007 |
+| Travels | Overlapping time-based collections. Private travels auto-add items by local capture or added time; shared and public ones need full-screen approval per item. | ADR-0007 |
 
 ## Documentation
 
