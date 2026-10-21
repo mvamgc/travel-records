@@ -4,6 +4,7 @@
 - **Date:** 2026-10-14
 - **Resolves:** HLD §7 open decision on sanitizing public media (strip on serve vs a pre-generated copy); HLD §11 ADR-0006
 - **Changes requirements:** adds REQ-065 to REQ-067
+- **Amended by:** [ADR-0007](0007-travels.md) (public links to travels follow the same rules; where this ADR says "album", it also covers travels)
 
 ## Context
 

@@ -68,6 +68,7 @@ graph TD
 - **Outbox pattern:** every mutation writes the entity to IndexedDB **and** appends an operation to the outbox in one logical step (REQ-012). The UI reflects the local write immediately; the sync engine propagates it later. While the user is a guest, changes are not queued; migration queues the current state (§3).
 - **Client-generated IDs:** entities get client-side UUIDs at creation so they are referenceable offline and stable across sync (REQ-008).
 - **Media pipeline (client):** on capture, the client produces a **downsized preview** (and strips location from it) and keeps the **original**. Preview + original are both stored locally and queued for staged upload (REQ-024, REQ-025).
+- **Travels (client):** the owner's devices apply the auto-add rule offline. An item joins a private travel when its local capture time or local added time falls within the travel's dates, unless the owner excluded it. The rule re-runs when items are added, capture times change or dates change. Changing the dates of a private travel that is in progress or finished first shows how many items will be added and removed (REQ-081). Shared and public travels get a full-screen review queue instead (REQ-071–REQ-077, REQ-082, ADR-0007). Albums can be created, or extended, from travels in progress or finished, by picking the user's own items (REQ-079, REQ-080).
 
 ## 3. Identity & auth
 
@@ -138,8 +139,9 @@ sequenceDiagram
 
 ### Pull (server → client): sync scopes
 Every record belongs to a **sync scope**:
-- the user's **personal scope**: items not in any album, memberships, friendships, settings;
-- an **album scope**: the album, all its items whoever added them, comments, reactions, members.
+- the user's **personal scope**: all of the user's items (photos, videos, notes), memberships, friendships, settings;
+- an **album scope**: the album, its entries (each carrying a server-maintained copy of the item's metadata, ADR-0008), comments, reactions, members;
+- a **travel scope**: the travel, its entries (each carrying a server-maintained copy of the item's metadata), comments, reactions, members (ADR-0007).
 
 Each scope numbers its changes. A record carries the number of its latest change, so a scope's feed is just its records in change order: current state, not history.
 
@@ -158,9 +160,9 @@ Each scope numbers its changes. A record carries the number of its latest change
   - `sync` — push and pull over sync scopes, conflict detection, scope change numbering (§4).
   - `media` — create, append, status and cancel for resumable uploads: `POST /items/{id}/media/{kind}`, `PATCH`/`HEAD`/`DELETE /uploads/{id}` (§7).
   - `media-assembler` — invoked asynchronously; joins staged chunks into the final S3 object and checks its SHA-256 (§7).
-  - `sharing` — friends graph, album shares, public-link create/revoke; a background job that returns contributed items to their owners when access ends (§8).
+  - `sharing` — friends graph, album shares, public-link create/revoke; a background job that removes a member's entries when their access ends (§8).
   - `public-viewer` — token-validated, read-only access to publicly linked albums: previews for photos, location-free copies for videos, no geotags (§7, ADR-0006).
-  - `access-loss` and `purge` — jobs: returning contributed items when access ends (invoked asynchronously by `sharing`), and the scheduled purge of expired trash and deletion records (§8, §9).
+  - `access-loss` and `purge` — jobs: removing a member's entries when their access ends (invoked asynchronously by `sharing`), and the scheduled purge of expired trash and deletion records (§8, §9).
   - `public-media` — job: makes location-free copies of videos in publicly linked albums, when a link is created or on first view (§7).
 - **Runtime:** HTTP functions are `axum` routers behind `lambda_http`; jobs use `lambda_runtime`. `aws-sdk-rust` for DynamoDB/S3/Cognito. All are arm64 binaries of one `server` crate, built with `cargo-lambda`, and the same routers run locally as a `dev-server`.
 - **Infrastructure:** AWS CDK (TypeScript) in `infra/`, with one stack per environment (dev, prod) in one account. Deployed by GitHub Actions through OIDC (ADR-0005).
@@ -176,14 +178,18 @@ Single-table design; full key schema and indexes are deferred to `docs/lld/data-
 |---|---|
 | **User** | account profile, settings |
 | **Album** | owner, title, permission mode |
-| **Item** | photo / video / note; `albumId?`, caption, geotag, per-field HLC stamps, timestamps, `deletedAt?` (tombstone), media state per representation (`uploading` → `available`) |
+| **AlbumEntry** | links one item to one album, ID `{albumId}:{itemId}`; a copy of the item's metadata, rewritten by the server whenever the item changes (ADR-0008) |
+| **Travel** | owner, title, description, start and end (local dates, optionally with times); its own sync scope (ADR-0007) |
+| **TravelEntry** | links one item to one travel, ID `{travelId}:{itemId}`; origin `auto` or `manual`; a copy of the item's metadata, rewritten by the server whenever the item changes |
+| **TravelExclusion** | an item the owner removed from, or declined for, a travel; lives in the owner's personal scope, so members never see it |
+| **Item** | photo / video / note, always in its owner's personal scope and in any number of albums and travels through entries (ADR-0008); caption, geotag, local capture time and local added time (for travels), per-field HLC stamps, timestamps, `deletedAt?` (tombstone), media state per representation (`uploading` → `available`) |
 | **Membership** | which user has which role (owner/contributor/viewer) on an album; one copy in the album scope, one in the member's personal scope |
 | **FriendEdge** | friend relationship + state (pending/accepted); one copy in each user's personal scope |
-| **PublicLink** | token, albumId, `expiresAt?`, `revoked` |
+| **PublicLink** | token, album or travel ID, `expiresAt?`, `revoked` |
 | **Comment / Reaction** | attached to album or item |
 | **ScopeHead** | number of the last committed change in a sync scope (ADR-0003) |
 
-Key access patterns the schema must serve: list albums by owner; list items by album; read a scope's records in change order from a cursor; resolve a public token → album + items; list a user's friends; comments/reactions by target. Every record carries per-field HLC stamps and the stamps of its last few applied operations, for conflict detection and retry recognition (REQ-013, ADR-0004), and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
+Key access patterns the schema must serve: list albums by owner; list entries by album; list entries by travel; read a scope's records in change order from a cursor; resolve a public token → album or travel + its entries; list a user's friends; comments/reactions by target. Every record carries per-field HLC stamps and the stamps of its last few applied operations, for conflict detection and retry recognition (REQ-013, ADR-0004), and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
 
 ## 7. Media storage & chunked upload
 
@@ -243,13 +249,20 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 ## 8. Sharing, collaboration & public links
 
 - **Friends graph** — request / accept / remove between accounts (REQ-035).
-- **Album shares** — grant a friend `viewer` or `contributor` via a Membership record (REQ-034). Contributors add their own items and may edit/delete only those (REQ-039, REQ-040), enforced server-side by owner checks. When a member loses access, the items they contributed go back to their personal library (REQ-059). Deleting an album returns every item to its owner and deletes no photos (REQ-060).
+- **Album shares** — grant a friend `viewer` or `contributor` via a Membership record (REQ-034). Contributors add their own items and may edit/delete only those (REQ-039, REQ-040), enforced server-side by owner checks. An item can be in any number of albums, through entries (ADR-0008). When a member loses access, their entries are removed and the items stay in their library (REQ-059). Deleting an album removes its entries and deletes no items (REQ-060).
+- **Travels** — shared like albums, with `viewer` and `contributor` roles and public links (REQ-074). An item can be in any number of travels, through entries (REQ-070).
+  - While a travel is shared or public, nothing is added automatically. Each item's owner approves candidates one by one, full screen (REQ-075).
+  - Narrowing a shared travel's dates never removes entries silently; the owner is offered to remove the ones now outside (REQ-082).
+  - Sharing a private travel first runs that review over the items already in it (REQ-076).
+  - Skipped items are recorded only in the owner's personal scope (REQ-077).
+  - A member who loses access loses their entries; the items stay in their library (ADR-0007).
 - **Public links** — a high-entropy token maps to an album; the `public-viewer` Lambda serves read-only content without location (previews for photos, location-free copies for videos; ADR-0006) through short-lived presigned media URLs. Revocation flips `revoked`; expiry checks `expiresAt`; both deny access immediately (REQ-036–REQ-038).
 - **Social** — comments and reactions sync like any item and become visible to album members (REQ-042, REQ-043); revoking access or deleting the album removes access to them (REQ-044).
 
 ## 9. Deletion, trash & retention
 
 - Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge runs as a scheduled job rather than plain DynamoDB TTL, so each scope's purge horizon advances with the deletions; the same job cleans up media files, and public video copies whose album no longer has an active link (ADR-0006). Deletion records are kept for a retention period after the trash window, and a device whose cursor is older than that resyncs the affected scope (REQ-062, ADR-0003).
+- Deleting a travel removes its entries and never its items (REQ-078).
 - The client **evicts full-resolution originals after confirmed upload**, keeping only previews; originals are re-downloaded on demand when online, and shown as preview-with-indicator when offline (REQ-049–REQ-051).
 - When local storage nears quota, the client surfaces the condition and applies eviction rather than failing silently (REQ-021).
 
@@ -271,8 +284,10 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 | [ADR-0004](adr/0004-conflict-versioning.md) | Conflict detection: per-field hybrid logical clock stamps | Accepted |
 | [ADR-0005](adr/0005-toolchain-and-deployment.md) | Toolchain and deployment: CDK (TypeScript), cargo-lambda, axum per concern, CloudFront, GitHub Actions | Accepted |
 | [ADR-0006](adr/0006-public-media-location.md) | Location privacy on public links: previews only, location-free video copies | Accepted |
+| [ADR-0007](adr/0007-travels.md) | Travels: overlapping time-based collections with auto-add, review before sharing | Accepted |
+| [ADR-0008](adr/0008-items-in-many-albums.md) | Items live in their owner's library; albums hold entries, so an item can be in many albums | Accepted |
 
 ## 12. Next documents
 - `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
-- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record; ADR-0001 to ADR-0004 propose initial values).
+- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record, maximum albums and travels per item; ADR-0001 to ADR-0004 and ADR-0008 propose initial values).
 - `docs/adr/` — the decisions in §11.

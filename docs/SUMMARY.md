@@ -11,3 +11,5 @@
   - [ADR-0004: Conflict versioning](adr/0004-conflict-versioning.md)
   - [ADR-0005: Toolchain and deployment](adr/0005-toolchain-and-deployment.md)
   - [ADR-0006: Location privacy on public links](adr/0006-public-media-location.md)
+  - [ADR-0007: Travels](adr/0007-travels.md)
+  - [ADR-0008: Items in many albums](adr/0008-items-in-many-albums.md)
