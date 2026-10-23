@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-14
 - **Resolves:** HLD §7 open decision on sanitizing public media (strip on serve vs a pre-generated copy); HLD §11 ADR-0006
-- **Changes requirements:** adds REQ-065 to REQ-067
-- **Amended by:** [ADR-0007](0007-travels.md) (public links to travels follow the same rules; where this ADR says "album", it also covers travels)
+- **Changes requirements:** amends REQ-025; adds REQ-065 to REQ-067
+- **Amended by:** [ADR-0007](0007-travels.md) (public links to travels follow the same rules; where this ADR says "album", it also covers travels); [ADR-0008](0008-items-in-many-albums.md) (a video can be in several albums, so its public copy stays while any of them has an active link)
 
 ## Context
 
@@ -22,7 +22,7 @@ The HLD's two options both assumed public viewers get full-size originals:
 More facts:
 
 - Previews are re-encoded by the client (HLD §2), which drops all embedded metadata. The server still can't trust that: a buggy or modified client could upload a preview with GPS data in it.
-- Videos have no preview (ADR-0001: lane 2 carries images only), and the POC does no video transcoding (non-goals).
+- A video's preview is a still frame taken from it by the client (HLD §2): an image, not a playable video. The POC does no video transcoding (non-goals).
 - Album members are friends the owner chose. Only public links are restricted by REQ-016 and REQ-041.
 
 Decision drivers, in priority order:
@@ -40,7 +40,7 @@ Decision drivers, in priority order:
 |---|---|
 | Record metadata | Title, captions, dates, and the album's structure. **No geotags**, precise or approximate. The `public-viewer` API never returns location fields. |
 | Photos | **The preview only** (REQ-066). Full resolution is never served on a public link. |
-| Videos | A **location-free copy** of the original, kept under `public/` (decision 3). Until the copy exists, a placeholder is shown. |
+| Videos | The **still-frame preview**, and a **location-free copy** of the original, kept under `public/` (decision 3). Until the copy exists, only the still frame is shown. |
 
 There is no map on public pages.
 
@@ -55,6 +55,7 @@ After a preview's SHA-256 has been checked against `Repr-Digest` (ADR-0001), the
 | PNG | critical chunks, colour-space and pixel-density chunks | text, EXIF, unknown chunks |
 
 - A preview in any other format is rejected.
+- A video's still frame is a preview like any other and is cleaned the same way.
 - The cleaning runs wherever a preview reaches its final key: in `media` for single-request uploads, and in `media-assembler` for chunked ones.
 - The stored file can differ from the client's bytes, so the server records the digest of what it stored.
 
@@ -72,9 +73,11 @@ A public copy is made only for a video whose original is `available` and whose a
 **When copies are made:**
 
 - **Eagerly:** when a public link is created, `sharing` starts the job for every eligible video in the album.
-- **Lazily:** anything still missing, such as a video added to the album later, or an original that arrived later (REQ-052, REQ-053), is made the first time a public viewer asks for it. The viewer sees a "preparing video" placeholder until then.
+- **Lazily:** anything still missing, such as a video added to the album later, or an original that arrived later (REQ-052, REQ-053), is made the first time a public viewer asks for it. Until then, the viewer sees the video's still frame with a "preparing video" notice.
 
 **When copies are deleted:** the daily `purge` job (ADR-0003) deletes copies whose album has no active link, whose link has expired, or whose item has left the album or been deleted.
+
+*Amended by ADR-0008:* a video can be in several albums, so its copy is deleted only once no album holding it has an active, unexpired link, or once the video is deleted.
 
 Revoking a link takes effect at once anyway, because `public-viewer` refuses the token (REQ-037). The presigned URLs it has already issued are short-lived.
 
@@ -85,7 +88,7 @@ Members see what the owner sees: geotags, the map, and the original files with t
 ## Considered options
 
 1. **Strip on serve.** A Lambda filters every public download. Rejected: cost grows with views, and Lambda isn't a good path for streaming large videos.
-2. **A pre-generated, location-free copy of every public original, photos included.** Rejected for photos: it needs a server image pipeline (HEIC to JPEG) and extra storage, and public viewers rarely need full resolution. Kept for videos, which have no preview.
+2. **A pre-generated, location-free copy of every public original, photos included.** Rejected for photos: it needs a server image pipeline (HEIC to JPEG) and extra storage, and public viewers rarely need full resolution. Kept for videos, whose preview is only a still frame.
 3. **Trusting the client's previews without checking.** Rejected: one buggy or modified client could publish GPS data.
 4. **Removing location boxes and rebuilding the video file.** Rejected: changing sizes moves every offset in the sample tables, so the whole file must be rewritten correctly. Overwriting in place keeps the file valid without that.
 5. **Not showing videos on public links.** Rejected: public albums would lose their videos.
@@ -103,7 +106,7 @@ Members see what the owner sees: geotags, the map, and the original files with t
 - **Bad:**
   - the server needs lossless metadata rewriting for JPEG, WebP and PNG, plus an MP4/QuickTime box walker that can overwrite boxes and track samples in place;
   - public viewers can't see full-resolution photos;
-  - the first viewer of a newly added video may see a placeholder;
+  - the first viewer of a newly added video may see only its still frame;
   - videos are served in their original codec, so a viewer whose browser can't decode it (HEVC in some browsers) can't play it in the page. Transcoding is a non-goal.
 - **Follow-ups:**
   - media LLD: the exact allowlists, box and key names, and how the job streams the copy;

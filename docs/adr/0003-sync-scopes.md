@@ -47,9 +47,9 @@ Most records live in exactly one scope. A record that concerns two parties has o
 - a membership: in the album scope and in the member's personal scope;
 - a friendship: in both users' personal scopes.
 
-*Amended by ADR-0007 and ADR-0008:* items always live in their owner's personal scope. Album scopes, and travel scopes (`travel#{travelId}`), hold entries instead. Each entry carries a copy of its item's metadata, which the server rewrites in the same transaction whenever the item changes; the item's own record stays the single source. Adding an item to an album, or removing it, only creates or removes an entry, so the moved-out markers described next are no longer needed.
-
 Moving an item into, out of or between albums (REQ-009) is one transaction. The item leaves the old scope, leaving a *moved-out* marker behind, and enters the new scope.
+
+*Amended by ADR-0007 and ADR-0008:* items always live in their owner's personal scope. Album scopes, and travel scopes (`travel#{travelId}`), hold entries instead. Each entry carries a copy of its item's metadata, which the server rewrites in the same transaction whenever the item changes; the item's own record stays the single source. Adding an item to an album, or removing it, only creates or removes an entry, so the moved-out markers described above are no longer needed.
 
 ### 2. Each scope numbers its changes
 
@@ -104,6 +104,8 @@ What happens to a removed member's comments on items that stay in the album is l
 ### 6. Purge horizon and resync
 
 Deletion records (tombstones and moved-out markers) are kept for a retention period after the trash window ends (REQ-048), then removed. Each scope records a **purge horizon**: the highest change number among the deletion records removed so far.
+
+*Amended by ADR-0008:* moved-out markers no longer exist, so deletion records are tombstones only.
 
 A pull whose cursor is older than the horizon might have missed deletions, so that scope gets the status `resync` (REQ-062). The device then:
 

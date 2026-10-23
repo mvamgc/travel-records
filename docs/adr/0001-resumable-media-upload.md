@@ -7,7 +7,7 @@
 
 ## Context
 
-Every photo or video is uploaded in two representations (HLD §7): a downsized **preview** first (lane 2) and the full-resolution **original** later (lane 3) (REQ-024, REQ-025). Uploads must survive very slow, frequently dropping connections and resume where they stopped (REQ-026, REQ-027). All API traffic goes through API Gateway (HTTP API) to Rust Lambdas (HLD §5).
+Every photo or video is uploaded in two representations (HLD §7): a downsized **preview** first (lane 2; for a video, a still frame taken from it) and the full-resolution **original** later (lane 3) (REQ-024, REQ-025). Uploads must survive very slow, frequently dropping connections and resume where they stopped (REQ-026, REQ-027). All API traffic goes through API Gateway (HTTP API) to Rust Lambdas (HLD §5).
 
 These facts constrain the design:
 

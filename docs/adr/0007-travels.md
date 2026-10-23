@@ -12,7 +12,7 @@
 A **Travel** is a trip with a start and an end:
 
 - The user can plan it ahead, with a description and planned dates, and edit everything before, during and after the trip.
-- Photos taken or added during the trip join it automatically.
+- Photos taken during the trip join it automatically. A photo with no capture time joins if it was added during the trip.
 - Travels can **overlap**: for example one travel per country, plus one for the whole trip.
 - A travel can be private, shared with friends, or public, just like an album.
 - In a shared or public travel, nothing is added automatically. The app asks about each picture, showing it full screen.
@@ -70,10 +70,10 @@ This amends ADR-0003 decision 1. Besides records that concern two parties, an it
 
 An item of the owner — a photo, video or note — **belongs** to a private travel if both of these hold:
 
-- its **local capture time** falls within the travel's dates, **or** its **local added time** (when it was created in, or imported into, the app) does;
+- its **local capture time** falls within the travel's dates; an item without a capture time uses its **local added time** (when it was created in, or imported into, the app) instead;
 - the owner hasn't excluded it from that travel.
 
-**Capture time** is the EXIF original date/time for photos and videos (local wall-clock time), and the creation time for notes. An item without one uses its added time. Both times are stored on the item (HLD §6).
+**Capture time** is the EXIF original date/time for photos and videos (local wall-clock time), and the creation time for notes. Both times are stored on the item (HLD §6). Photos taken before a trip but imported during it therefore don't join it.
 
 **Overrides:**
 
@@ -141,6 +141,7 @@ The review can be done offline. Sharing needs the network anyway (REQ-003), so i
 5. **Exact start and end times in a chosen time zone.** Rejected (user decision): trips that cross time zones get awkward at the edges, and capture times are local anyway.
 6. **Auto-adding photos only, or photos and videos only.** Rejected (user decision): notes written during a trip belong to it as much as photos do.
 7. **Keeping auto-added items as they are when a travel becomes shared.** Rejected (user decision): it would publish photos nobody approved.
+8. **Auto-adding an item when either its capture time or its added time falls within the dates.** Rejected (user decision): importing older photos during a trip would add them to it.
 
 ## Consequences
 

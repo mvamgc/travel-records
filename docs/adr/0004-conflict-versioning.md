@@ -12,7 +12,7 @@ Records are edited offline and synced later. The server must detect a change mad
 Who actually produces concurrent changes:
 
 - **One person on two devices.** Contributors can edit only their own items (REQ-040), and only the owner edits the album record, so different people rarely touch the same record.
-- **The server itself.** `media-assembler` marks media `available` (ADR-0001), the access-loss job moves items back to their owners (ADR-0003), and the purge job removes deletion records.
+- **The server itself.** `media-assembler` marks media `available` (ADR-0001), the access-loss job removes a former member's entries (ADR-0003, ADR-0008), and the purge job removes deletion records.
 
 Problems found in the review that this decision must solve:
 
