@@ -4,6 +4,7 @@
 - **Date:** 2026-10-12
 - **Resolves:** HLD §3 note on the guest identity; HLD §11 ADR-0002
 - **Changes requirements:** amends REQ-001, REQ-004; adds REQ-054 to REQ-058
+- **Amended by:** [ADR-0009](0009-sign-in.md) (sign-in inside the app with an emailed code, resolving open item 3; renewing the session before it ends)
 
 ## Context
 
@@ -82,6 +83,8 @@ Once a profile is bound, its `sub` never changes. If a different account signs i
 - The refresh-token lifetime must outlast a long trip without connectivity; the value goes in `docs/ear.md`.
 - When the refresh token expires, the user signs in again, and it must be the same account (decision 6). Until then the app keeps working locally (REQ-007).
 
+*Amended by ADR-0009:* the refresh token's lifetime counts from sign-in, and refreshing never extends it. The app offers to renew the session ahead of time, and before a travel that would outlast it.
+
 ## Considered options
 
 1. **Cognito Identity Pool unauthenticated identity**, as REQ-001 originally said. Rejected:
@@ -124,7 +127,7 @@ Initial values, to be pinned in `docs/ear.md`:
 
 1. Whether Safari and the app installed to the iOS home screen really keep separate storage. If they do, show an "install first" hint before a guest in Safari creates content, because that content won't follow them into the installed app.
 2. How `navigator.storage.persist()` behaves in each target browser: granted silently, prompted, or refused.
-3. The sign-in flow inside an installed app, especially iOS standalone mode: Cognito's hosted login page via redirect (authorization code with PKCE) vs an in-app form. To be decided in the auth/migration LLD.
+3. The sign-in flow inside an installed app, especially iOS standalone mode: Cognito's hosted login page via redirect (authorization code with PKCE) vs an in-app form. To be decided in the auth/migration LLD. *Resolved by ADR-0009:* an in-app form calling the Cognito API, with no redirect.
 
 ## References
 

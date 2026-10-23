@@ -13,3 +13,4 @@
   - [ADR-0006: Location privacy on public links](adr/0006-public-media-location.md)
   - [ADR-0007: Travels](adr/0007-travels.md)
   - [ADR-0008: Items in many albums](adr/0008-items-in-many-albums.md)
+  - [ADR-0009: Sign-in](adr/0009-sign-in.md)
