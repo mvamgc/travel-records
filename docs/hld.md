@@ -2,7 +2,7 @@
 
 > Scope: system-wide architecture for the offline-first POC. Component-level detail lives in `docs/lld/`; point decisions and their rationale live in `docs/adr/`. Requirement IDs (REQ-NNN) refer to `docs/requirements.md`.
 >
-> **Stack:** Leptos CSR SPA + PWA · Rust on AWS Lambda + API Gateway (HTTP API) · DynamoDB (metadata) · S3 (media) · Amazon Cognito (auth).
+> **Stack:** Leptos CSR SPA + PWA · CloudFront · Rust on AWS Lambda + API Gateway (HTTP API) · DynamoDB (metadata) · S3 (media) · Amazon Cognito (auth).
 
 ## 1. Architecture overview
 
@@ -67,8 +67,8 @@ graph TD
 - **Local data layer:** a thin Rust/WASM repository over IndexedDB. Everything the UI reads comes from IndexedDB; the network is never on the UI's critical path.
 - **Outbox pattern:** every mutation writes the entity to IndexedDB **and** appends an operation to the outbox in one logical step (REQ-012). The UI reflects the local write immediately; the sync engine propagates it later. While the user is a guest, changes are not queued; migration queues the current state (§3).
 - **Client-generated IDs:** entities get client-side UUIDs at creation so they are referenceable offline and stable across sync (REQ-008).
-- **Media pipeline (client):** on capture, the client produces a **downsized preview** (and strips location from it) and keeps the **original**. Preview + original are both stored locally and queued for staged upload (REQ-024, REQ-025).
-- **Travels (client):** the owner's devices apply the auto-add rule offline. An item joins a private travel when its local capture time or local added time falls within the travel's dates, unless the owner excluded it. The rule re-runs when items are added, capture times change or dates change. Changing the dates of a private travel that is in progress or finished first shows how many items will be added and removed (REQ-081). Shared and public travels get a full-screen review queue instead (REQ-071–REQ-077, REQ-082, ADR-0007). Albums can be created, or extended, from travels in progress or finished, by picking the user's own items (REQ-079, REQ-080).
+- **Media pipeline (client):** on capture, the client produces a **downsized preview** (for a video, a still frame taken from it), strips location from it, and keeps the **original**. Preview + original are both stored locally and queued for staged upload, so others can see a video's still frame before its original arrives (REQ-024, REQ-025).
+- **Travels (client):** the owner's devices apply the auto-add rule offline. An item joins a private travel when its local capture time falls within the travel's dates, unless the owner excluded it; an item without a capture time uses its local added time instead. The rule re-runs when items are added, capture times change or dates change. Changing the dates of a private travel that is in progress or finished first shows how many items will be added and removed (REQ-081). Shared and public travels get a full-screen review queue instead (REQ-071–REQ-077, REQ-082, ADR-0007). Albums can be created, or extended, from travels in progress or finished, by picking the user's own items (REQ-079, REQ-080).
 
 ## 3. Identity & auth
 
@@ -101,8 +101,8 @@ The sync engine is the heart of the offline-first behavior. It runs in the clien
 
 ### Push (outbox → server)
 Operations drain in **three staged lanes** (REQ-024):
-1. **Text/metadata** — albums, notes, captions, edits, deletes, shares.
-2. **Downsized previews** — small images uploaded so content is shareable fast (REQ-025).
+1. **Text/metadata** — albums, travels, entries, notes, captions, edits, deletes, shares.
+2. **Downsized previews** — small images (for a video, a still frame) uploaded so content is shareable fast (REQ-025).
 3. **Full-resolution originals** — photos and short videos, chunked (§7). Deferred while measured throughput is below a threshold, unless the user starts or holds them manually (REQ-052, REQ-053).
 
 Media uploads (lanes 2 and 3) run up to three files in parallel, each one sequentially (ADR-0001).
@@ -146,7 +146,7 @@ Every record belongs to a **sync scope**:
 Each scope numbers its changes. A record carries the number of its latest change, so a scope's feed is just its records in change order: current state, not history.
 
 - The device keeps one cursor per scope (per device and account) and sends them all in one `POST /sync/pull`. The server checks access, reads the scopes in parallel, and returns changed records, tombstones included, in small pages sized to the connection (REQ-006, REQ-039, REQ-042, REQ-046).
-- A new membership arriving in the personal scope makes the device read that album's scope from 0. When access ends, the scope comes back `gone`, and the device deletes its local copy of the album (REQ-044, REQ-059).
+- A new membership arriving in the personal scope makes the device read that album's or travel's scope from 0. When access ends, the scope comes back `gone`, and the device deletes its local copy of the album or travel (REQ-044, REQ-059).
 - If a cursor is older than the scope's purge horizon, the device resyncs that scope from 0 without discarding unsynced changes (REQ-062).
 - Devices pull on open, on focus, on reconnect, after each push, and on a timer (REQ-061).
 - Media bytes are fetched lazily via presigned GET URLs on demand (REQ-050).
@@ -160,10 +160,10 @@ Each scope numbers its changes. A record carries the number of its latest change
   - `sync` — push and pull over sync scopes, conflict detection, scope change numbering (§4).
   - `media` — create, append, status and cancel for resumable uploads: `POST /items/{id}/media/{kind}`, `PATCH`/`HEAD`/`DELETE /uploads/{id}` (§7).
   - `media-assembler` — invoked asynchronously; joins staged chunks into the final S3 object and checks its SHA-256 (§7).
-  - `sharing` — friends graph, album shares, public-link create/revoke; a background job that removes a member's entries when their access ends (§8).
-  - `public-viewer` — token-validated, read-only access to publicly linked albums: previews for photos, location-free copies for videos, no geotags (§7, ADR-0006).
+  - `sharing` — friends graph, album and travel shares, public-link create/revoke; a background job that removes a member's entries when their access ends (§8).
+  - `public-viewer` — token-validated, read-only access to publicly linked albums and travels: previews for photos, still frames and location-free copies for videos, no geotags (§7, ADR-0006).
   - `access-loss` and `purge` — jobs: removing a member's entries when their access ends (invoked asynchronously by `sharing`), and the scheduled purge of expired trash and deletion records (§8, §9).
-  - `public-media` — job: makes location-free copies of videos in publicly linked albums, when a link is created or on first view (§7).
+  - `public-media` — job: makes location-free copies of videos in publicly linked albums and travels, when a link is created or on first view (§7).
 - **Runtime:** HTTP functions are `axum` routers behind `lambda_http`; jobs use `lambda_runtime`. `aws-sdk-rust` for DynamoDB/S3/Cognito. All are arm64 binaries of one `server` crate, built with `cargo-lambda`, and the same routers run locally as a `dev-server`.
 - **Infrastructure:** AWS CDK (TypeScript) in `infra/`, with one stack per environment (dev, prod) in one account. Deployed by GitHub Actions through OIDC (ADR-0005).
 - **API style:** REST/JSON. Leptos server functions are not used: outbox operations must be stored and replayed later, which fits plain REST requests better than RPC calls.
@@ -183,10 +183,10 @@ Single-table design; full key schema and indexes are deferred to `docs/lld/data-
 | **TravelEntry** | links one item to one travel, ID `{travelId}:{itemId}`; origin `auto` or `manual`; a copy of the item's metadata, rewritten by the server whenever the item changes |
 | **TravelExclusion** | an item the owner removed from, or declined for, a travel; lives in the owner's personal scope, so members never see it |
 | **Item** | photo / video / note, always in its owner's personal scope and in any number of albums and travels through entries (ADR-0008); caption, geotag, local capture time and local added time (for travels), per-field HLC stamps, timestamps, `deletedAt?` (tombstone), media state per representation (`uploading` → `available`) |
-| **Membership** | which user has which role (owner/contributor/viewer) on an album; one copy in the album scope, one in the member's personal scope |
+| **Membership** | which user has which role (owner/contributor/viewer) on an album or travel; one copy in the album's or travel's scope, one in the member's personal scope |
 | **FriendEdge** | friend relationship + state (pending/accepted); one copy in each user's personal scope |
 | **PublicLink** | token, album or travel ID, `expiresAt?`, `revoked` |
-| **Comment / Reaction** | attached to album or item |
+| **Comment / Reaction** | attached to an album or travel, or to one of its entries; lives in that album's or travel's scope (ADR-0008) |
 | **ScopeHead** | number of the last committed change in a sync scope (ADR-0003) |
 
 Key access patterns the schema must serve: list albums by owner; list entries by album; list entries by travel; read a scope's records in change order from a cursor; resolve a public token → album or travel + its entries; list a user's friends; comments/reactions by target. Every record carries per-field HLC stamps and the stamps of its last few applied operations, for conflict detection and retry recognition (REQ-013, ADR-0004), and a `deletedAt` tombstone for soft delete (REQ-045, REQ-046).
@@ -195,9 +195,9 @@ Key access patterns the schema must serve: list albums by owner; list entries by
 
 Media lives in S3 under per-owner prefixes, in up to four representations:
 - `original/` — full-resolution photo/video (evicted from the client after confirmed upload, REQ-049).
-- `preview/` — client-generated downsized image; the server strips any embedded metadata on upload (uploaded first, REQ-025, REQ-067).
+- `preview/` — client-generated downsized image (for a video, a still frame); the server strips any embedded metadata on upload (uploaded first, REQ-025, REQ-067).
 - `staging/` — in-progress upload chunks.
-- `public/` — location-free copies of videos in albums with an active public link (REQ-016, REQ-041, ADR-0006).
+- `public/` — location-free copies of videos in albums or travels with an active public link (REQ-016, REQ-041, ADR-0006).
 
 ### Chunked, resumable upload (ADR-0001)
 Previews and originals use the same protocol. Media goes through the `media` Lambda in small chunks: 64 KiB to 4 MiB, sized by the client from measured throughput and changeable between requests. A dropped connection therefore wastes at most one small chunk (REQ-026, REQ-027).
@@ -243,7 +243,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 
 - **Metadata:** `public-viewer` never returns geotags, precise or approximate, and public pages have no map.
 - **Photos:** public viewers get previews only. After checking a preview's digest, the server rewrites it without re-encoding and keeps only an allowlist of parts, such as the image data and the colour profile. EXIF, XMP and unknown metadata are dropped even if a client sent them (REQ-067).
-- **Videos:** the `public-media` job writes a copy to `public/` with location metadata, and the samples of any track other than video or audio, overwritten in place. Nothing is re-encoded and no offsets change. Copies are made when a link is created, or on first view; the daily purge deletes them once the album has no active link.
+- **Videos:** the `public-media` job writes a copy to `public/` with location metadata, and the samples of any track other than video or audio, overwritten in place. Nothing is re-encoded and no offsets change. Copies are made when a link is created, or on first view; until then, viewers see the video's still frame. The daily purge deletes a copy once no album or travel holding the video has an active link.
 - **Members** see location just as the owner does (REQ-065).
 
 ## 8. Sharing, collaboration & public links
@@ -256,12 +256,12 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
   - Sharing a private travel first runs that review over the items already in it (REQ-076).
   - Skipped items are recorded only in the owner's personal scope (REQ-077).
   - A member who loses access loses their entries; the items stay in their library (ADR-0007).
-- **Public links** — a high-entropy token maps to an album; the `public-viewer` Lambda serves read-only content without location (previews for photos, location-free copies for videos; ADR-0006) through short-lived presigned media URLs. Revocation flips `revoked`; expiry checks `expiresAt`; both deny access immediately (REQ-036–REQ-038).
-- **Social** — comments and reactions sync like any item and become visible to album members (REQ-042, REQ-043); revoking access or deleting the album removes access to them (REQ-044).
+- **Public links** — a high-entropy token maps to an album or travel; the `public-viewer` Lambda serves read-only content without location (previews for photos, still frames and location-free copies for videos; ADR-0006) through short-lived presigned media URLs. Revocation flips `revoked`; expiry checks `expiresAt`; both deny access immediately (REQ-036–REQ-038).
+- **Social** — comments and reactions sync like any item and become visible to the album's or travel's members (REQ-042, REQ-043); revoking access or deleting the album or travel removes access to them (REQ-044).
 
 ## 9. Deletion, trash & retention
 
-- Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge runs as a scheduled job rather than plain DynamoDB TTL, so each scope's purge horizon advances with the deletions; the same job cleans up media files, and public video copies whose album no longer has an active link (ADR-0006). Deletion records are kept for a retention period after the trash window, and a device whose cursor is older than that resyncs the affected scope (REQ-062, ADR-0003).
+- Deletes are **tombstones** that sync everywhere and land items in **Trash** for a retention window, after which a scheduled purge removes them locally and server-side (REQ-045–REQ-048). Server-side purge runs as a scheduled job rather than plain DynamoDB TTL, so each scope's purge horizon advances with the deletions; the same job cleans up media files, and public video copies that no album or travel with an active link still holds (ADR-0006). Deletion records are kept for a retention period after the trash window, and a device whose cursor is older than that resyncs the affected scope (REQ-062, ADR-0003).
 - Deleting a travel removes its entries and never its items (REQ-078).
 - The client **evicts full-resolution originals after confirmed upload**, keeping only previews; originals are re-downloaded on demand when online, and shown as preview-with-indicator when offline (REQ-049–REQ-051).
 - When local storage nears quota, the client surfaces the condition and applies eviction rather than failing silently (REQ-021).
@@ -269,7 +269,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 ## 10. Cross-cutting concerns
 
 - **Security:** scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
-- **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as location-free copies; geotags never appear in public responses. Album members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067).
+- **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as still frames and location-free copies; geotags never appear in public responses. Album and travel members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067).
 - **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
 - **Observability:** structured JSON logs (`tracing`) to CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
 - **Cost:** scale-to-zero stack (Lambda + DynamoDB on-demand + S3); main variable cost is media storage and egress.
@@ -280,7 +280,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 |---|---|---|
 | [ADR-0001](adr/0001-resumable-media-upload.md) | Resumable media upload: small chunks staged in S3, joined by `media-assembler` | Accepted |
 | [ADR-0002](adr/0002-guest-identity.md) | Guest identity: local-only guest, migration with confirmation, sign-out clears the device | Accepted |
-| [ADR-0003](adr/0003-sync-scopes.md) | Change feed: numbered feeds per sync scope (personal and per album) | Accepted |
+| [ADR-0003](adr/0003-sync-scopes.md) | Change feed: numbered feeds per sync scope (personal, per album and per travel) | Accepted |
 | [ADR-0004](adr/0004-conflict-versioning.md) | Conflict detection: per-field hybrid logical clock stamps | Accepted |
 | [ADR-0005](adr/0005-toolchain-and-deployment.md) | Toolchain and deployment: CDK (TypeScript), cargo-lambda, axum per concern, CloudFront, GitHub Actions | Accepted |
 | [ADR-0006](adr/0006-public-media-location.md) | Location privacy on public links: previews only, location-free video copies | Accepted |

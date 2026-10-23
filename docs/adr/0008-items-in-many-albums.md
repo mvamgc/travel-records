@@ -4,7 +4,7 @@
 - **Date:** 2026-10-18
 - **Resolves:** letting an item be in several albums, and building albums from travels
 - **Changes requirements:** amends REQ-009, REQ-059, REQ-060, REQ-070; adds REQ-079 and REQ-080
-- **Amends:** [ADR-0003](0003-sync-scopes.md) (where items live, and what losing access does); [ADR-0007](0007-travels.md) (the per-item cap now counts albums too)
+- **Amends:** [ADR-0003](0003-sync-scopes.md) (where items live, and what losing access does); [ADR-0006](0006-public-media-location.md) (when a video's public copy is deleted); [ADR-0007](0007-travels.md) (the per-item cap now counts albums too)
 
 ## Context
 

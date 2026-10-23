@@ -2,7 +2,7 @@
 
 > Testable statements: **WHEN** (event-triggered), **WHILE** (ongoing state), **IF/THEN** (conditional). IDs are stable; do not renumber on edit.
 >
-> **Stack (context, not requirements):** Leptos CSR SPA + PWA · Rust on AWS Lambda + API Gateway · DynamoDB (metadata) · S3 (blobs) · Amazon Cognito (user pools + guest identities).
+> **Stack (context, not requirements):** Leptos CSR SPA + PWA · CloudFront · Rust on AWS Lambda + API Gateway · DynamoDB (metadata) · S3 (blobs) · Amazon Cognito (user pool; guests are local-only, ADR-0002).
 
 ## 1. Onboarding & Authentication
 - **REQ-001** — WHEN a user opens the app for the first time, THEN the app SHALL create a local guest identity on the device, without any network call, and allow full use without sign-in (ADR-0002).
@@ -44,7 +44,7 @@
 - **REQ-022** — WHILE offline, the app SHALL durably queue all create/update/delete operations in IndexedDB.
 - **REQ-023** — WHEN connectivity is (re)established AND the user is signed in, THEN the app SHALL automatically drain the sync queue without manual action.
 - **REQ-024** — The sync engine SHALL transmit in staged priority order: (1) text/notes/metadata, (2) downsized images, (3) full-resolution photos/videos, subject to REQ-052 and REQ-053.
-- **REQ-025** — WHEN syncing an image, THEN its downsized preview SHALL upload before the corresponding full-resolution original.
+- **REQ-025** — WHEN syncing a photo or video, THEN its downsized preview (for a video, a still frame taken from it) SHALL upload before the corresponding full-resolution original.
 - **REQ-026** — WHEN uploading media (preview or original), THEN the client SHALL send it in sequential chunks no larger than the server-advertised maximum (≤4 MiB) and MAY change the chunk size between requests; the server SHALL assemble the chunks into the final S3 object and verify its SHA-256 digest (ADR-0001).
 - **REQ-027** — IF a chunked upload is interrupted, THEN on the next sync the app SHALL resume from the last byte offset committed by the server rather than restarting the file.
 - **REQ-028** — IF a sync operation fails, THEN the app SHALL retry with backoff and preserve the queued operation until it succeeds or is explicitly cancelled.
@@ -73,7 +73,7 @@
 - **REQ-041** — WHILE viewing a shared album via a public link, viewers SHALL NOT see precise location data (per REQ-016).
 - **REQ-059** — WHEN a member loses access to an album, THEN the items that member contributed SHALL be removed from the album while staying in the member's personal library, and their devices SHALL delete their local copies of the album's remaining content.
 - **REQ-060** — WHEN an owner deletes an album, THEN the app SHALL NOT delete its items; they SHALL stay in their owners' libraries and in any other albums and travels.
-- **REQ-066** — WHEN an album or travel is viewed via a public link, THEN photos SHALL be served only as downsized previews and videos only as copies with location metadata removed, and no location data, precise or approximate, SHALL be shown.
+- **REQ-066** — WHEN an album or travel is viewed via a public link, THEN photos SHALL be served only as downsized previews and videos only as their still-frame previews and as copies with location metadata removed, and no location data, precise or approximate, SHALL be shown.
 
 ## 8. Social Interaction
 - **REQ-042** — WHEN a viewer with access comments on a shared album/photo, THEN the comment SHALL sync and become visible to other members.
@@ -93,7 +93,7 @@
 - **REQ-068** — WHEN a user creates a travel, THEN the app SHALL record its title, description, and start and end dates (optionally with times), whether the trip is in the future, in progress or over, and SHALL work offline (ADR-0007).
 - **REQ-069** — The user SHALL be able to edit all of a travel's information before, during and after the trip.
 - **REQ-070** — A user SHALL be able to have several travels, including travels whose dates overlap; an item SHALL be able to belong to any number of travels, independently of its albums.
-- **REQ-071** — WHILE a travel is private, the app SHALL automatically include in it every photo, video and note of the owner whose local capture time, or local time of being added to the app, falls within the travel's dates.
+- **REQ-071** — WHILE a travel is private, the app SHALL automatically include in it every photo, video and note of the owner whose local capture time falls within the travel's dates; for an item without a capture time, the local time it was added to the app SHALL be used instead.
 - **REQ-072** — The owner SHALL be able to remove an automatically included item from a travel and to add items from outside its dates; the app SHALL keep these choices whenever it re-applies REQ-071.
 - **REQ-073** — WHEN a travel's dates or an item's capture time change, THEN the app SHALL re-apply REQ-071, subject to REQ-072.
 - **REQ-081** — WHEN the owner changes the dates of a private travel that is in progress or finished, THEN the app SHALL first show how many items the new dates will add and remove, and SHALL apply the change only if the owner confirms; items added by hand SHALL NOT be removed.
