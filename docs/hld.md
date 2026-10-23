@@ -32,6 +32,7 @@ graph TD
     DDB[(DynamoDB single-table)]
     S3[(S3: media + staging)]
     Cognito[Cognito User Pool]
+    SES[SES: sign-in codes]
   end
 
   SW -->|app shell| CF
@@ -47,6 +48,7 @@ graph TD
   LAssemble --> S3 & DDB
   LPublic -->|presigned GET| S3
   Client -. sign in .-> Cognito
+  Cognito -. email .-> SES
 ```
 
 ### Component responsibilities
@@ -59,7 +61,7 @@ graph TD
 - **Lambda functions (Rust)** — partitioned by concern: sync, media upload, media assembly, sharing/social, public viewer (§5).
 - **DynamoDB** — all metadata (single-table design, §6).
 - **S3** — media originals, downsized previews, chunk staging, and location-free copies of public videos (§7).
-- **Cognito** — user identity and JWT issuance; involved only at and after sign-in (§3).
+- **Cognito** — user identity and JWT issuance; the app's own sign-in screens call it directly, and it emails sign-in codes through SES. Involved only at and after sign-in (§3).
 
 ## 2. Client architecture (Leptos)
 
@@ -72,7 +74,7 @@ graph TD
 
 ## 3. Identity & auth
 
-Decided in [ADR-0002](adr/0002-guest-identity.md).
+Decided in [ADR-0002](adr/0002-guest-identity.md) and [ADR-0009](adr/0009-sign-in.md).
 
 - **Three identities on a device:**
   - a **device ID**, generated at first launch and kept for the life of the installation;
@@ -82,7 +84,10 @@ Decided in [ADR-0002](adr/0002-guest-identity.md).
   The server takes ownership from the JWT `sub`, never from client-supplied fields.
 - **Guest = local-only identity.** First launch creates a guest profile on the device with no network call, so the app is usable with zero connectivity (REQ-001, REQ-002). Guests cannot sync or share (REQ-003), so they need no Cognito identity.
 - **Guest data protection:** guest content exists only on the device. The app requests persistent storage on the first save (REQ-054), and prompts the guest to sign in, or to install the app if persistence was refused, without blocking local use (REQ-055).
-- **Sign-in** uses a Cognito User Pool. The client holds the JWT and sends it on owner API calls, and API Gateway validates it with a Cognito JWT authorizer (REQ-003, REQ-007).
+- **Sign-in** happens in the app's own screens, which call the Cognito user-pools API directly; nothing redirects or leaves the app (REQ-083).
+  - The user enters an email address and a one-time code emailed to it through SES. There are no passwords, and a new address gets an account in the same step.
+  - An attempt survives the app being closed while the user reads their email (REQ-084).
+  - API calls carry the access token, which API Gateway checks with a Cognito JWT authorizer (REQ-003).
 - **Guest→account migration:**
   1. If the account already has content, the user confirms what will be added; cancelling aborts the sign-in (REQ-056).
   2. The client then re-stamps guest records with the account's `sub`, binds the profile, and queues one create per entity with its current state. Guest edit history is never replayed.
@@ -91,8 +96,8 @@ Decided in [ADR-0002](adr/0002-guest-identity.md).
 - **Sign-out:** after a warning if changes haven't synced, the app deletes the account's local data and starts a fresh guest. The device ID stays (REQ-058).
 - **Token lifecycle:**
   - access and ID tokens are kept in memory, and the refresh token in IndexedDB;
-  - the refresh token's lifetime covers long offline trips;
-  - tokens are refreshed transparently while online, and the app degrades to local-only while offline (REQ-007).
+  - access tokens are refreshed transparently while online, and the app degrades to local-only while offline (REQ-007);
+  - the refresh token isn't rotated, and the session ends a fixed time after sign-in. The app offers renewal ahead of that, and before a travel that would outlast it (REQ-085).
 - **Public viewers** are unauthenticated and reach content only through a tokenized public route (§5, §8).
 
 ## 4. Sync engine (the core)
@@ -268,7 +273,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 
 ## 10. Cross-cutting concerns
 
-- **Security:** scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
+- **Security:** no passwords, since sign-in uses emailed one-time codes, and the API accepts access tokens only (ADR-0009); scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
 - **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as still frames and location-free copies; geotags never appear in public responses. Album and travel members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067).
 - **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
 - **Observability:** structured JSON logs (`tracing`) to CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
@@ -286,8 +291,9 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 | [ADR-0006](adr/0006-public-media-location.md) | Location privacy on public links: previews only, location-free video copies | Accepted |
 | [ADR-0007](adr/0007-travels.md) | Travels: overlapping time-based collections with auto-add, review before sharing | Accepted |
 | [ADR-0008](adr/0008-items-in-many-albums.md) | Items live in their owner's library; albums hold entries, so an item can be in many albums | Accepted |
+| [ADR-0009](adr/0009-sign-in.md) | Sign-in: the app's own screens, an emailed one-time code, no passwords or redirects | Accepted |
 
 ## 12. Next documents
 - `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
-- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record, maximum albums and travels per item; ADR-0001 to ADR-0004 and ADR-0008 propose initial values).
+- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, sign-in attempt validity, sign-in renewal window, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record, maximum albums and travels per item; ADR-0001 to ADR-0004, ADR-0008 and ADR-0009 propose initial values).
 - `docs/adr/` — the decisions in §11.
