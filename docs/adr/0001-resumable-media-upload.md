@@ -4,6 +4,7 @@
 - **Date:** 2026-10-08
 - **Resolves:** HLD §7 open decision on chunk assembly
 - **Changes requirements:** amends REQ-024, REQ-026, REQ-027; adds REQ-052, REQ-053
+- **Amended by:** [ADR-0010](0010-maps.md) (an original whose location the owner chose is cleaned of embedded location before it becomes `available`)
 
 ## Context
 
@@ -70,6 +71,8 @@ File name and media type come from the item record, which lane 1 has already syn
 ### 6. "Confirmed uploaded" means `available`
 
 The client evicts a local original (REQ-049) only after the server reports that media `available`, meaning assembled and hash-checked. Having sent all the bytes is not enough. Media state is part of the item record and reaches the client through pull sync.
+
+*Amended by ADR-0010:* if the owner has edited the item's location, the server first removes the location embedded in the original. Only then is it `available`.
 
 ### 7. Expiry and cleanup
 

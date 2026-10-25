@@ -4,7 +4,7 @@
 - **Date:** 2026-10-14
 - **Resolves:** HLD §7 open decision on sanitizing public media (strip on serve vs a pre-generated copy); HLD §11 ADR-0006
 - **Changes requirements:** amends REQ-025; adds REQ-065 to REQ-067
-- **Amended by:** [ADR-0007](0007-travels.md) (public links to travels follow the same rules; where this ADR says "album", it also covers travels); [ADR-0008](0008-items-in-many-albums.md) (a video can be in several albums, so its public copy stays while any of them has an active link)
+- **Amended by:** [ADR-0007](0007-travels.md) (public links to travels follow the same rules; where this ADR says "album", it also covers travels); [ADR-0008](0008-items-in-many-albums.md) (a video can be in several albums, so its public copy stays while any of them has an active link); [ADR-0010](0010-maps.md) (once the owner edits an item's location, its original loses its embedded location; the in-place overwrite extends to photos)
 
 ## Context
 
@@ -84,6 +84,8 @@ Revoking a link takes effect at once anyway, because `public-viewer` refuses the
 ### 4. Album members see location
 
 Members see what the owner sees: geotags, the map, and the original files with their metadata (REQ-065). Location filtering applies to public links only.
+
+*Amended by ADR-0010:* once the owner sets, moves or removes an item's location, the server removes the location embedded in its original, so members see only the location the owner chose (REQ-090). The in-place overwrite of decision 3 extends to photo formats for this.
 
 ## Considered options
 

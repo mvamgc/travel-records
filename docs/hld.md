@@ -2,7 +2,7 @@
 
 > Scope: system-wide architecture for the offline-first POC. Component-level detail lives in `docs/lld/`; point decisions and their rationale live in `docs/adr/`. Requirement IDs (REQ-NNN) refer to `docs/requirements.md`.
 >
-> **Stack:** Leptos CSR SPA + PWA · CloudFront · Rust on AWS Lambda + API Gateway (HTTP API) · DynamoDB (metadata) · S3 (media) · Amazon Cognito (auth).
+> **Stack:** Leptos CSR SPA + PWA · CloudFront · Rust on AWS Lambda + API Gateway (HTTP API) · DynamoDB (metadata) · S3 (media) · Amazon Cognito (auth) · MapLibre over a self-hosted OpenStreetMap basemap (maps).
 
 ## 1. Architecture overview
 
@@ -12,16 +12,19 @@ The system is a **local-first PWA** backed by a **serverless Rust API**. The cli
 graph TD
   subgraph Client["Browser (Leptos CSR PWA)"]
     UI[UI / routes]
-    Store[(IndexedDB:<br/>records, blobs, outbox)]
+    Store[(IndexedDB:<br/>records, blobs, outbox,<br/>map tiles)]
     Sync[Sync engine]
+    MapV[Map view<br/>MapLibre]
     SW[Service worker<br/>app-shell cache]
     UI --> Store
     Sync --> Store
+    MapV --> Store
   end
 
   subgraph AWS
     CF[CloudFront<br/>one HTTPS origin]
     Site[(S3: SPA assets)]
+    Tiles[(S3: map file<br/>PMTiles)]
     APIGW[API Gateway HTTP API]
     Authz[Cognito JWT authorizer]
     LSync[Lambda: sync push/pull]
@@ -37,7 +40,9 @@ graph TD
 
   SW -->|app shell| CF
   Sync -->|JWT| CF
+  MapV -->|byte ranges| CF
   CF -->|"/*"| Site
+  CF -->|"/tiles/*"| Tiles
   CF -->|"/api/*"| APIGW
   APIGW --> Authz
   Authz --> LSync & LMedia & LShare
@@ -53,14 +58,15 @@ graph TD
 
 ### Component responsibilities
 - **Leptos PWA** — capture, browse, edit, map view; renders entirely client-side; installable; works fully offline (REQ-018, REQ-020).
-- **IndexedDB** — single local store for records, media blobs, and the outbox queue (REQ-019, REQ-022).
+- **IndexedDB** — single local store for records, media blobs, the outbox queue, and map tiles (REQ-019, REQ-022).
+- **Map view** — MapLibre GL JS draws a self-hosted OpenStreetMap basemap under the markers of geotagged items. Tiles are stored on the device, so the map works offline in saved areas and recently viewed places (§2, ADR-0010).
 - **Sync engine** — drains the outbox in staged priority order, pulls server deltas, surfaces conflicts and sync status (§4, REQ-023–REQ-029).
 - **Service worker** — caches the app shell so the SPA boots offline (REQ-018).
-- **CloudFront** — one HTTPS origin: serves the SPA from S3 and forwards `/api/*` to API Gateway, so the app never makes cross-origin API calls (ADR-0005).
+- **CloudFront** — one HTTPS origin: serves the SPA from S3, serves the map file under `/tiles/`, and forwards `/api/*` to API Gateway, so the app never makes cross-origin API calls (ADR-0005, ADR-0010).
 - **API Gateway (HTTP API)** — behind CloudFront; JWT authorizer for owner routes, a separate unauthenticated route for public-link viewing.
 - **Lambda functions (Rust)** — partitioned by concern: sync, media upload, media assembly, sharing/social, public viewer (§5).
 - **DynamoDB** — all metadata (single-table design, §6).
-- **S3** — media originals, downsized previews, chunk staging, and location-free copies of public videos (§7).
+- **S3** — media originals, downsized previews, chunk staging, and location-free copies of public videos (§7); the map file, in its own bucket (ADR-0010).
 - **Cognito** — user identity and JWT issuance; the app's own sign-in screens call it directly, and it emails sign-in codes through SES. A trigger function sets the scopes of the access tokens it issues. Involved only at and after sign-in (§3).
 
 ## 2. Client architecture (Leptos)
@@ -70,6 +76,11 @@ graph TD
 - **Outbox pattern:** every mutation writes the entity to IndexedDB **and** appends an operation to the outbox in one logical step (REQ-012). The UI reflects the local write immediately; the sync engine propagates it later. While the user is a guest, changes are not queued; migration queues the current state (§3).
 - **Client-generated IDs:** entities get client-side UUIDs at creation so they are referenceable offline and stable across sync (REQ-008).
 - **Media pipeline (client):** on capture, the client produces a **downsized preview** (for a video, a still frame taken from it), strips location from it, and keeps the **original**. Preview + original are both stored locally and queued for staged upload, so others can see a video's still frame before its original arrives (REQ-024, REQ-025).
+- **Map (client):** decided in [ADR-0010](adr/0010-maps.md).
+  - Markers come from IndexedDB and never need the network. Tiles are read from the map file with range requests and stored in IndexedDB: a low-detail world overview, recently viewed places (size-capped), and areas the user saves before a trip (REQ-087, REQ-089).
+  - A saved area shows its exact size first, downloads as a few large, resumable range requests, and yields to text and previews (REQ-088).
+  - Map requests go only to our own origin (REQ-091).
+  - The owner can set, move or remove an item's location on the map. It is an ordinary field edit, and the server then removes the location embedded in the original (REQ-090).
 - **Travels (client):** the owner's devices apply the auto-add rule offline. An item joins a private travel when its local capture time falls within the travel's dates, unless the owner excluded it; an item without a capture time uses its local added time instead. The rule re-runs when items are added, capture times change or dates change. Changing the dates of a private travel that is in progress or finished first shows how many items will be added and removed (REQ-081). Shared and public travels get a full-screen review queue instead (REQ-071–REQ-077, REQ-082, ADR-0007). Albums can be created, or extended, from travels in progress or finished, by picking the user's own items (REQ-079, REQ-080).
 
 ## 3. Identity & auth
@@ -161,7 +172,7 @@ Each scope numbers its changes. A record carries the number of its latest change
 
 ## 5. Backend (Rust on Lambda)
 
-- **Edge:** CloudFront in front of an API Gateway **HTTP API** (cheaper/simpler than REST API), on the same origin as the SPA, so there are no CORS preflights. Cognito JWT authorizer on owner routes; one unauthenticated route for public viewing. Routes live under `/api/…`.
+- **Edge:** CloudFront in front of an API Gateway **HTTP API** (cheaper/simpler than REST API), on the same origin as the SPA, so there are no CORS preflights. Cognito JWT authorizer on owner routes; one unauthenticated route for public viewing. Routes live under `/api/…`. CloudFront also serves the map file under `/tiles/` from its own S3 bucket, with range requests and no sign-in; there is no server code for maps (ADR-0010).
 - **Functions** (split by concern to keep cold starts and IAM scope small):
   - `sync` — push and pull over sync scopes, conflict detection, scope change numbering (§4).
   - `media` — create, append, status and cancel for resumable uploads: `POST /items/{id}/media/{kind}`, `PATCH`/`HEAD`/`DELETE /uploads/{id}` (§7).
@@ -201,7 +212,7 @@ Key access patterns the schema must serve: list albums by owner; list entries by
 ## 7. Media storage & chunked upload
 
 Media lives in S3 under per-owner prefixes, in up to four representations:
-- `original/` — full-resolution photo/video (evicted from the client after confirmed upload, REQ-049).
+- `original/` — full-resolution photo/video (evicted from the client after confirmed upload, REQ-049). Once the owner has edited an item's location, its original is stored without embedded location (REQ-090, ADR-0010).
 - `preview/` — client-generated downsized image (for a video, a still frame); the server strips any embedded metadata on upload (uploaded first, REQ-025, REQ-067).
 - `staging/` — in-progress upload chunks.
 - `public/` — location-free copies of videos in albums or travels with an active public link (REQ-016, REQ-041, ADR-0006).
@@ -251,7 +262,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 - **Metadata:** `public-viewer` never returns geotags, precise or approximate, and public pages have no map.
 - **Photos:** public viewers get previews only. After checking a preview's digest, the server rewrites it without re-encoding and keeps only an allowlist of parts, such as the image data and the colour profile. EXIF, XMP and unknown metadata are dropped even if a client sent them (REQ-067).
 - **Videos:** the `public-media` job writes a copy to `public/` with location metadata, and the samples of any track other than video or audio, overwritten in place. Nothing is re-encoded and no offsets change. Copies are made when a link is created, or on first view; until then, viewers see the video's still frame. The daily purge deletes a copy once no album or travel holding the video has an active link.
-- **Members** see location just as the owner does (REQ-065).
+- **Members** see location just as the owner does (REQ-065). Once the owner sets, moves or removes an item's location, the server removes the location embedded in its original, so members see only the location the owner chose (REQ-090, ADR-0010).
 
 ## 8. Sharing, collaboration & public links
 
@@ -276,7 +287,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 ## 10. Cross-cutting concerns
 
 - **Security:** no passwords, since sign-in uses emailed one-time codes; the API accepts access tokens only, and those tokens can't change the account's email address or ways to sign in, or delete it (ADR-0009); scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
-- **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as still frames and location-free copies; geotags never appear in public responses. Album and travel members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067).
+- **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as still frames and location-free copies; geotags never appear in public responses. Album and travel members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067). Map data comes only from our own origin, so no third party sees which places users look at (REQ-091, ADR-0010).
 - **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
 - **Observability:** structured JSON logs (`tracing`) to CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.
 - **Cost:** scale-to-zero stack (Lambda + DynamoDB on-demand + S3); main variable cost is media storage and egress.
@@ -294,8 +305,9 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 | [ADR-0007](adr/0007-travels.md) | Travels: overlapping time-based collections with auto-add, review before sharing | Accepted |
 | [ADR-0008](adr/0008-items-in-many-albums.md) | Items live in their owner's library; albums hold entries, so an item can be in many albums | Accepted |
 | [ADR-0009](adr/0009-sign-in.md) | Sign-in: the app's own screens, an emailed one-time code, no passwords or redirects | Accepted |
+| [ADR-0010](adr/0010-maps.md) | Maps: MapLibre over a self-hosted OpenStreetMap basemap, tiles kept on the device, saved areas, locations set by the owner | Accepted |
 
 ## 12. Next documents
-- `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing).
-- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, sign-in attempt validity, sign-in renewal window, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record, maximum albums and travels per item; ADR-0001 to ADR-0004, ADR-0008 and ADR-0009 propose initial values).
+- `docs/lld/` — per-component designs (sync engine, data-model key schema, media upload, auth/migration, sharing, map).
+- `docs/ear.md` — EARS acceptance criteria pinning concrete values (trash window, preview dimensions, quota thresholds, token length, chunk-size bounds, upload concurrency, originals throughput threshold, upload lifetime, guest sign-in prompt trigger, refresh-token lifetime, sign-in attempt validity, sign-in renewal window, pull page size, periodic pull interval, deletion-record retention, maximum accepted clock skew, recent applied stamps per record, maximum albums and travels per item, world-overview zoom levels and size budget, viewed-places cache size, saved-area zoom levels and size limit, gap merged in area downloads; ADR-0001 to ADR-0004 and ADR-0008 to ADR-0010 propose initial values).
 - `docs/adr/` — the decisions in §11.

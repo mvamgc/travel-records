@@ -37,6 +37,11 @@
 - **REQ-017** — IF the user denies location permission, THEN capture and saving SHALL still succeed without a geotag.
 - **REQ-065** — WHILE viewing an album or travel they are a member of, members SHALL see the same location data as the owner: geotags, the map, and original files with their metadata.
 - **REQ-067** — WHEN the server stores a preview, THEN it SHALL remove all embedded metadata not needed to display the image.
+- **REQ-087** — WHILE offline, the map view SHALL show the markers of geotagged items over the most detailed map stored on the device for the visible area, and at least a low-detail world map (ADR-0010).
+- **REQ-088** — WHEN a user saves a map area for offline use, THEN the app SHALL first show its download size, SHALL download it in the background without delaying the sync of text and previews, and SHALL resume an interrupted download where it stopped.
+- **REQ-089** — The app SHALL list saved map areas with the storage each uses and let the user delete them; WHEN local storage approaches the quota, THEN the app SHALL remove map data of places only viewed before any user content, and SHALL NOT delete saved areas without the user's confirmation.
+- **REQ-090** — WHEN the owner of an item sets, moves or removes its location on the map, THEN the app SHALL save the change offline and sync it like any other edit, and the server SHALL remove the location embedded in the item's original file.
+- **REQ-091** — The app SHALL load map data only from its own origin, and SHALL NOT send map requests or item locations to third parties.
 
 ## 4. Offline Storage & PWA
 - **REQ-018** — The frontend SHALL be an installable PWA whose app shell loads and functions while offline.
@@ -122,3 +127,4 @@
 - Server-side rendering / SEO for app pages (CSR SPA).
 - End-to-end encryption of stored media.
 - Changing the sign-in email address in the app; the operator changes it on request (REQ-086).
+- Place search and place names for locations (geocoding) (ADR-0010).
