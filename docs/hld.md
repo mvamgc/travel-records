@@ -61,7 +61,7 @@ graph TD
 - **Lambda functions (Rust)** — partitioned by concern: sync, media upload, media assembly, sharing/social, public viewer (§5).
 - **DynamoDB** — all metadata (single-table design, §6).
 - **S3** — media originals, downsized previews, chunk staging, and location-free copies of public videos (§7).
-- **Cognito** — user identity and JWT issuance; the app's own sign-in screens call it directly, and it emails sign-in codes through SES. Involved only at and after sign-in (§3).
+- **Cognito** — user identity and JWT issuance; the app's own sign-in screens call it directly, and it emails sign-in codes through SES. A trigger function sets the scopes of the access tokens it issues. Involved only at and after sign-in (§3).
 
 ## 2. Client architecture (Leptos)
 
@@ -88,6 +88,7 @@ Decided in [ADR-0002](adr/0002-guest-identity.md) and [ADR-0009](adr/0009-sign-i
   - The user enters an email address and a one-time code emailed to it through SES. There are no passwords, and a new address gets an account in the same step.
   - An attempt survives the app being closed while the user reads their email (REQ-084).
   - API calls carry the access token, which API Gateway checks with a Cognito JWT authorizer (REQ-003).
+  - The app's tokens can't change the account. A trigger removes Cognito's self-service scope from every access token, so the tokens can't change the email address, add a password, or delete the account. Users can't change their email address in the app; the operator does it on request (REQ-086).
 - **Guest→account migration:**
   1. If the account already has content, the user confirms what will be added; cancelling aborts the sign-in (REQ-056).
   2. The client then re-stamps guest records with the account's `sub`, binds the profile, and queues one create per entity with its current state. Guest edit history is never replayed.
@@ -169,6 +170,7 @@ Each scope numbers its changes. A record carries the number of its latest change
   - `public-viewer` — token-validated, read-only access to publicly linked albums and travels: previews for photos, still frames and location-free copies for videos, no geotags (§7, ADR-0006).
   - `access-loss` and `purge` — jobs: removing a member's entries when their access ends (invoked asynchronously by `sharing`), and the scheduled purge of expired trash and deletion records (§8, §9).
   - `public-media` — job: makes location-free copies of videos in publicly linked albums and travels, when a link is created or on first view (§7).
+  - `pre-token` — Cognito trigger: replaces the self-service scope in every access token with the scope the API requires (§3, ADR-0009).
 - **Runtime:** HTTP functions are `axum` routers behind `lambda_http`; jobs use `lambda_runtime`. `aws-sdk-rust` for DynamoDB/S3/Cognito. All are arm64 binaries of one `server` crate, built with `cargo-lambda`, and the same routers run locally as a `dev-server`.
 - **Infrastructure:** AWS CDK (TypeScript) in `infra/`, with one stack per environment (dev, prod) in one account. Deployed by GitHub Actions through OIDC (ADR-0005).
 - **API style:** REST/JSON. Leptos server functions are not used: outbox operations must be stored and replayed later, which fits plain REST requests better than RPC calls.
@@ -273,7 +275,7 @@ Precise location must not leak on public links (REQ-016, REQ-041, REQ-066).
 
 ## 10. Cross-cutting concerns
 
-- **Security:** no passwords, since sign-in uses emailed one-time codes, and the API accepts access tokens only (ADR-0009); scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
+- **Security:** no passwords, since sign-in uses emailed one-time codes; the API accepts access tokens only, and those tokens can't change the account's email address or ways to sign in, or delete it (ADR-0009); scoped, short-lived presigned URLs; server-side authorization on every owner/contributor action; high-entropy public tokens; least-privilege per-function IAM; CI deploys through OIDC roles with no stored AWS keys.
 - **Privacy:** public links serve photos as previews only, cleaned of embedded metadata on upload, and videos as still frames and location-free copies; geotags never appear in public responses. Album and travel members see location just as the owner does (REQ-016, REQ-041, REQ-065–REQ-067).
 - **Resilience:** idempotent sync operations (client-generated IDs make creates safe to retry, and each update's HLC stamp lets the server recognise a retry, ADR-0004); backoff + durable outbox (REQ-028).
 - **Observability:** structured JSON logs (`tracing`) to CloudWatch per function; sync metrics worth surfacing for debugging the staged pipeline.

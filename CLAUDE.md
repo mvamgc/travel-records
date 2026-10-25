@@ -30,7 +30,7 @@ Treat offline operation and staged, resumable sync as primary requirements in al
 | Client | Leptos CSR PWA (WASM). All local data lives in IndexedDB. An outbox drains in three lanes: text, then previews, then originals. | HLD §2, §4 |
 | Media upload | Small resumable chunks through Lambda, addressed by byte offset (`Upload-*` headers), joined by `media-assembler`. | ADR-0001 |
 | Identity | Guests are local-only. Guest data migrates on sign-in; sign-out clears the device. | ADR-0002 |
-| Sign-in | The app's own screens call Cognito directly: email address plus an emailed one-time code, no passwords, no redirects. Sessions are renewed before they end. | ADR-0009 |
+| Sign-in | The app's own screens call Cognito directly: email address plus an emailed one-time code, no passwords, no redirects. Sessions are renewed before they end. A trigger strips Cognito's self-service scope, so the app's tokens can't change the account; no email change in the app. | ADR-0009 |
 | Pull sync | Numbered change feeds per sync scope (one personal scope per user, one per album, one per travel). | ADR-0003 |
 | Conflicts | Per-field hybrid logical clock stamps; only concurrent edits to the same field conflict. | ADR-0004 |
 | Toolchain | Rust workspace, axum on Lambda (arm64), CDK in TypeScript, CloudFront as the single origin, GitHub Actions with OIDC. | ADR-0005 |

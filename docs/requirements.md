@@ -20,6 +20,7 @@
 - **REQ-083** — WHEN a user signs in or creates an account, THEN the app SHALL do so within the app, without opening another page or site, using the user's email address and a one-time code emailed to it, and SHALL NOT ask for a password (ADR-0009).
 - **REQ-084** — IF the app is closed or reloaded while waiting for a sign-in code, THEN on reopening it SHALL return to code entry for as long as that sign-in attempt is valid.
 - **REQ-085** — WHILE online, IF the current sign-in will expire within the renewal window, or before the end of a planned or ongoing travel, THEN the app SHALL offer, without blocking, to renew it with a new emailed code.
+- **REQ-086** — The tokens the app holds SHALL NOT allow changing the account's email address, adding another way to sign in, or deleting the account; the operator SHALL change a user's email address on request, after checking the user's identity (ADR-0009).
 
 ## 2. Content Model (Albums, Photos, Videos, Notes)
 - **REQ-008** — WHEN a user creates an album, THEN the app SHALL assign a client-generated unique ID usable offline.
@@ -120,3 +121,4 @@
 - Automatic network-type detection (Wi-Fi vs cellular/roaming); the manual hold (REQ-053) covers expensive connections.
 - Server-side rendering / SEO for app pages (CSR SPA).
 - End-to-end encryption of stored media.
+- Changing the sign-in email address in the app; the operator changes it on request (REQ-086).
