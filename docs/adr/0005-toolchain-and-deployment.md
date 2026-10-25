@@ -4,7 +4,7 @@
 - **Date:** 2026-10-14
 - **Resolves:** HLD §5 open decision on infrastructure-as-code and the Rust Lambda toolchain; HLD §11 ADR-0005
 - **Changes requirements:** none
-- **Amended by:** [ADR-0009](0009-sign-in.md) (no Cognito domain or callback URLs; the user pool uses the Essentials plan and SES; the app calls Cognito's API cross-origin at sign-in and token refresh; one more function, the `pre-token` Cognito trigger)
+- **Amended by:** [ADR-0009](0009-sign-in.md) (no Cognito domain or callback URLs; the user pool uses the Essentials plan and SES; the app calls Cognito's API cross-origin at sign-in and token refresh; one more function, the `pre-token` Cognito trigger); [ADR-0010](0010-maps.md) (CloudFront also serves the map file under `/tiles/` from its own bucket)
 
 ## Context
 
@@ -88,6 +88,8 @@ Each environment has one CloudFront distribution:
 
 - **`/*`** serves the SPA from a private S3 bucket, through an origin access control. `index.html` and the service worker are never cached; hashed assets are cached long-term.
 - **`/api/*`** goes to the API Gateway HTTP API, with caching disabled, all methods allowed (including `PATCH` and `HEAD`), and the `Authorization` and upload headers forwarded.
+
+*Amended by ADR-0010:* **`/tiles/*`** serves the map file from its own S3 bucket, through an origin access control, cached, with range requests and no sign-in.
 
 **Why one origin:**
 
