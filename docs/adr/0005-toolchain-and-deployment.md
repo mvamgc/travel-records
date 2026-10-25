@@ -4,6 +4,7 @@
 - **Date:** 2026-10-14
 - **Resolves:** HLD §5 open decision on infrastructure-as-code and the Rust Lambda toolchain; HLD §11 ADR-0005
 - **Changes requirements:** none
+- **Amended by:** [ADR-0009](0009-sign-in.md) (no Cognito domain or callback URLs; the user pool uses the Essentials plan and SES; the app calls Cognito's API cross-origin at sign-in and token refresh; one more function, the `pre-token` Cognito trigger)
 
 ## Context
 
@@ -70,6 +71,8 @@ infra/              CDK app (TypeScript)
   - `access-loss` is invoked asynchronously by `sharing`;
   - `public-media` is invoked asynchronously by `sharing` and `public-viewer`;
   - `purge` runs on an EventBridge schedule.
+
+  *Amended by ADR-0009:* one more binary, `pre-token`, is the user pool's pre-token-generation trigger. Cognito invokes it whenever it issues tokens, and it sets the access token's scopes.
 - **Logging:** every function writes structured JSON logs through `tracing`, with log retention set per environment.
 
 ### 4. Local development
@@ -140,7 +143,7 @@ AWS access goes through OIDC, so no AWS keys are stored in GitHub. There is one 
 - **Follow-ups:**
   - the first implementation PR: workspace scaffolding, the CDK app and the CI workflows;
   - registering the prod domain and its hosted zone;
-  - the sign-in UI decision (ADR-0002, open item), which sets the Cognito hosted domain and callback URLs on the CloudFront domain.
+  - the sign-in UI decision (ADR-0002, open item), which sets the Cognito hosted domain and callback URLs on the CloudFront domain. *Resolved by ADR-0009:* sign-in needs neither.
 
 ## Validation spike
 
