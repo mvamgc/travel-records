@@ -4,14 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-An early-stage POC, still in the design phase. There is **no application code yet**: the repository holds the design documentation and the tooling that builds it into a PDF.
+An early-stage POC. The design is mostly done; the code is a **walking skeleton**: one thin slice through every layer of ADR-0005, with no product features yet.
 
-- **Done:** requirements, the high-level design, and ADR-0001 to ADR-0010 (all Accepted).
+- **Done:**
+  - requirements, the high-level design, and ADR-0001 to ADR-0010 (all Accepted);
+  - the walking skeleton: a Leptos PWA that boots offline and calls `GET /api/health` through CloudFront and API Gateway to the `sync` Lambda; `dev-server`; the CDK stacks; CI and deploy workflows.
 - **Next:**
   1. the validation spikes listed at the end of each ADR;
   2. LLDs in `docs/lld/`: data model, sync, media upload, auth/migration (including the sign-in screens of ADR-0009), and the map (ADR-0010);
   3. `docs/ear.md`, pinning the parameter values the ADRs propose;
-  4. the code scaffolding described in ADR-0005.
+  4. growing the skeleton: the table (after the data-model LLD), the media bucket, the user pool and the other functions.
 
 ## Product concept
 
@@ -75,17 +77,34 @@ The docs build into one PDF with mdBook, mdbook-pandoc and typst (`book.toml`, `
 - Build locally with `mdbook build`; the output is `target/book/pdf/travel-records.pdf`. It needs pandoc, typst, mdbook, mdbook-pandoc and Node. Mermaid diagrams are rendered by mermaid-cli, through `npx` or the command in `$MMDC`.
 - CI (`.github/workflows/docs.yml`) builds the PDF for pull requests and pushes to `main` that touch the docs, and uploads it as the `travel-records-docs` artifact.
 
-## Planned code layout
+## Code layout
 
-ADR-0005 defines the layout; none of it exists yet. Follow it when scaffolding, and add the build and test commands here once they exist.
+ADR-0005 defines the layout. Add each new Lambda or job as a binary in `crates/server/src/bin/`, with its router in the `server` library.
 
 ```
-Cargo.toml          workspace
+Cargo.toml          workspace; rust-toolchain.toml pins Rust and the wasm32 and arm64 targets
 crates/shared/      types, sync and upload protocols, HLC (wasm32 and native)
-crates/client/      Leptos CSR PWA, built with Trunk
+crates/client/      Leptos CSR PWA, built with Trunk; sw.js caches the app shell
 crates/server/      axum routers, plus one binary per Lambda and job, plus dev-server
-infra/              CDK app (TypeScript)
+infra/              CDK app (TypeScript); infra/README.md covers first-time AWS setup
 ```
+
+## Build, run and test
+
+Tools: the Rust toolchain from `rust-toolchain.toml`, Trunk, cargo-lambda 1.9.2 or later with zig (for arm64 builds), and Node 24.
+
+| Task | Command |
+|---|---|
+| Format, lint | `cargo fmt --all`, `cargo clippy --workspace --exclude client --all-targets -- -D warnings`, and `cargo clippy -p client --target wasm32-unknown-unknown -- -D warnings` |
+| Test the Rust code | `cargo test --workspace --exclude client` |
+| Run locally | `cargo run -p server --bin dev-server` (port 3000), then `trunk serve` in `crates/client` (port 8080, proxies `/api` to dev-server) |
+| Build the PWA | `trunk build --release` in `crates/client` (output in `crates/client/dist`) |
+| Test the infrastructure | `npm ci`, then `npx jest` in `infra` |
+| Synthesize the stacks | `npx cdk synth --all` in `infra`, after building the PWA. It builds the Lambda binaries for arm64. |
+
+The service worker registers only in release builds, so `trunk serve` never serves a stale cache. To try offline behaviour locally, use `trunk serve --release --no-autoreload`.
+
+CI (`.github/workflows/ci.yml`) runs all of the above on pull requests. `.github/workflows/deploy.yml` deploys dev on merges to `main`, and prod when run by hand; both stay skipped until the AWS setup in `infra/README.md` is done.
 
 ## Git workflow
 

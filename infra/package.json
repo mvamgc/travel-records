@@ -1,0 +1,25 @@
+{
+  "name": "travel-records-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.16.20",
+    "@swc/jest": "^0.2.39",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1146.1",
+    "jest": "^30.5.2",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.275.0",
+    "cargo-lambda-cdk": "^0.0.36",
+    "constructs": "^10.8.1"
+  }
+}

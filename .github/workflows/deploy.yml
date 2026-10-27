@@ -1,0 +1,47 @@
+name: Deploy
+
+# ADR-0005 decision 6: merges to main deploy dev; a manual run on main deploys
+# prod, gated by the protected GitHub `prod` environment. Both are skipped until
+# the CI stack's roles exist and their ARNs are set as repository variables
+# (infra/README.md).
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md", "book.toml", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  STAGE: ${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+    if: >-
+      (github.event_name == 'push' && vars.AWS_DEPLOY_ROLE_DEV != '')
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+          && vars.AWS_DEPLOY_ROLE_PROD != '')
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          web: true
+      - name: Build the PWA
+        working-directory: crates/client
+        run: trunk build --release
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.STAGE == 'prod' && vars.AWS_DEPLOY_ROLE_PROD || vars.AWS_DEPLOY_ROLE_DEV }}
+          aws-region: us-east-1
+      - name: Deploy
+        working-directory: infra
+        run: npx cdk deploy "TravelRecords-$STAGE" --require-approval never

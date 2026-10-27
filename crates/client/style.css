@@ -1,0 +1,24 @@
+:root {
+  color-scheme: light dark;
+  --accent: #1f6f8b;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+h1 {
+  color: var(--accent);
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+}

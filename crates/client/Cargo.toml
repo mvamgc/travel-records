@@ -1,0 +1,15 @@
+[package]
+name = "client"
+description = "Leptos CSR PWA, built with Trunk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+console_error_panic_hook.workspace = true
+gloo-net.workspace = true
+leptos.workspace = true
+shared.workspace = true
+web-sys.workspace = true
