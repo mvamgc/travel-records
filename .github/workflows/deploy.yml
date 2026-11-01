@@ -15,21 +15,21 @@ permissions:
   id-token: write
 
 env:
-  STAGE: ${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+  STAGE: ${{ case(github.event_name == 'workflow_dispatch', 'prod', 'dev') }}
 
 concurrency:
-  group: deploy-${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+  group: deploy-${{ case(github.event_name == 'workflow_dispatch', 'prod', 'dev') }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy ${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+    name: Deploy ${{ case(github.event_name == 'workflow_dispatch', 'prod', 'dev') }}
     if: >-
       (github.event_name == 'push' && vars.AWS_DEPLOY_ROLE_DEV != '')
       || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
           && vars.AWS_DEPLOY_ROLE_PROD != '')
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'workflow_dispatch' && 'prod' || 'dev' }}
+    environment: ${{ case(github.event_name == 'workflow_dispatch', 'prod', 'dev') }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -40,7 +40,7 @@ jobs:
         run: trunk build --release
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ env.STAGE == 'prod' && vars.AWS_DEPLOY_ROLE_PROD || vars.AWS_DEPLOY_ROLE_DEV }}
+          role-to-assume: ${{ case(env.STAGE == 'prod', vars.AWS_DEPLOY_ROLE_PROD, vars.AWS_DEPLOY_ROLE_DEV) }}
           aws-region: us-east-1
       - name: Deploy
         working-directory: infra
