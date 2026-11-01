@@ -1,0 +1,16 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+
+# Same origin as in AWS: /api goes to dev-server (cargo run -p server --bin dev-server).
+[[proxy]]
+backend = "http://127.0.0.1:3000/api/"
+
+[[hooks]]
+stage = "post_build"
+command = "node"
+command_arguments = ["build/precache.mjs"]

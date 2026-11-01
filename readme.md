@@ -13,3 +13,8 @@ While traveling the internet connection is not always available. Travel records 
 - Decisions: docs/adr/
 - When implementing, always read the relevant LLD and docs/ear.md first.
 - When a design decision changes, update the relevant ADR/LLD in the same PR.
+
+# Code
+- `crates/`: the Rust workspace, with the Leptos PWA (`client`), the Lambda functions and `dev-server` (`server`), and the code they share (`shared`).
+- `infra/`: the AWS CDK app. Its README covers first-time AWS setup.
+- CLAUDE.md lists the commands to build, run and test everything.

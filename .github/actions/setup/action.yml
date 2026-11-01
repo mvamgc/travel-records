@@ -1,0 +1,42 @@
+name: Set up toolchains
+description: >
+  Rust from rust-toolchain.toml, with its build cache. With `web: true`, also Trunk,
+  cargo-lambda, zig and Node with the CDK app's packages, for building the PWA and
+  synthesizing or deploying the stacks.
+
+inputs:
+  web:
+    description: Also install what the PWA build and the CDK app need.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust from rust-toolchain.toml
+      shell: bash
+      run: rustup toolchain install
+
+    - uses: Swatinem/rust-cache@v2
+
+    - if: inputs.web == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: trunk@0.21.14,cargo-lambda@1.9.2
+
+    # cargo-lambda links the arm64 Lambda binaries with zig.
+    - if: inputs.web == 'true'
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.16.0
+
+    - if: inputs.web == 'true'
+      uses: actions/setup-node@v7
+      with:
+        node-version: "24"
+        cache: npm
+        cache-dependency-path: infra/package-lock.json
+
+    - if: inputs.web == 'true'
+      shell: bash
+      working-directory: infra
+      run: npm ci
