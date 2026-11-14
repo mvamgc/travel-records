@@ -2,13 +2,13 @@ import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { CiStack } from '../lib/ci-stack';
 
-const REPO = 'owner/repo';
+const PREFIX = 'repo:owner@1/repo@2';
 
 function synth(existingOidcProviderArn?: string): Template {
   const app = new App();
   const stack = new CiStack(app, 'TravelRecords-ci', {
     env: { account: '123456789012', region: 'us-east-1' },
-    repository: REPO,
+    subjectPrefix: PREFIX,
     existingOidcProviderArn,
   });
   return Template.fromStack(stack);
@@ -24,9 +24,9 @@ function trustedSubject(template: Template, roleName: string): string {
 
 test('each role trusts exactly one kind of workflow run', () => {
   const template = synth();
-  expect(trustedSubject(template, 'TravelRecordsDeployDev')).toBe(`repo:${REPO}:environment:dev`);
-  expect(trustedSubject(template, 'TravelRecordsDeployProd')).toBe(`repo:${REPO}:environment:prod`);
-  expect(trustedSubject(template, 'TravelRecordsDiffDev')).toBe(`repo:${REPO}:pull_request`);
+  expect(trustedSubject(template, 'TravelRecordsDeployDev')).toBe(`${PREFIX}:environment:dev`);
+  expect(trustedSubject(template, 'TravelRecordsDeployProd')).toBe(`${PREFIX}:environment:prod`);
+  expect(trustedSubject(template, 'TravelRecordsDiffDev')).toBe(`${PREFIX}:pull_request`);
 });
 
 test('the diff role may only assume the lookup role', () => {

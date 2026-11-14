@@ -28,6 +28,8 @@ Until these steps are done, the deploy workflow and the `cdk diff` job in CI are
 
 2. **Deploy the CI stack.** It creates the account's GitHub OIDC provider and three roles: `TravelRecordsDeployDev`, `TravelRecordsDeployProd` and `TravelRecordsDiffDev`. Each may only assume the CDK bootstrap roles it needs.
 
+   The roles trust GitHub's immutable subject claim, which carries the owner's and the repository's numeric IDs (`repo:owner@OWNER_ID/name@REPO_ID`). `GITHUB_SUBJECT_PREFIX` in `lib/config.ts` holds it; in a fork, set it to what `gh api repos/OWNER/NAME/actions/oidc/customization/sub --jq .sub_claim_prefix` prints.
+
    ```sh
    npx cdk deploy TravelRecords-ci
    ```
