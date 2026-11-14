@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { App } from 'aws-cdk-lib';
 import { CiStack } from '../lib/ci-stack';
-import { ENVIRONMENTS, GITHUB_REPOSITORY, REGION } from '../lib/config';
+import { ENVIRONMENTS, GITHUB_SUBJECT_PREFIX, REGION } from '../lib/config';
 import { TravelRecordsStack } from '../lib/travel-records-stack';
 
 const app = new App();
@@ -13,6 +13,6 @@ for (const config of ENVIRONMENTS) {
 
 new CiStack(app, 'TravelRecords-ci', {
   env,
-  repository: GITHUB_REPOSITORY,
+  subjectPrefix: GITHUB_SUBJECT_PREFIX,
   existingOidcProviderArn: app.node.tryGetContext('githubOidcProviderArn'),
 });

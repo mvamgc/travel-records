@@ -6,8 +6,8 @@ const GITHUB_OIDC_URL = 'https://token.actions.githubusercontent.com';
 const GITHUB_OIDC_HOST = 'token.actions.githubusercontent.com';
 
 export interface CiStackProps extends StackProps {
-  /** `owner/name` of the GitHub repository. */
-  readonly repository: string;
+  /** The repository's OIDC `sub` claim prefix, such as `repo:owner@OWNER_ID/name@REPO_ID`. */
+  readonly subjectPrefix: string;
   /** The account's GitHub OIDC provider, if one exists already; otherwise this stack creates it. */
   readonly existingOidcProviderArn?: string;
 }
@@ -49,10 +49,10 @@ export class CiStack extends Stack {
 
     const deployRoles = ['deploy', 'file-publishing', 'lookup'];
     // Merges to main deploy dev from the GitHub `dev` environment.
-    githubRole('DeployDev', `repo:${props.repository}:environment:dev`, deployRoles);
+    githubRole('DeployDev', `${props.subjectPrefix}:environment:dev`, deployRoles);
     // Only the protected GitHub `prod` environment can deploy prod.
-    githubRole('DeployProd', `repo:${props.repository}:environment:prod`, deployRoles);
+    githubRole('DeployProd', `${props.subjectPrefix}:environment:prod`, deployRoles);
     // Pull requests run `cdk diff` against dev, which only reads.
-    githubRole('DiffDev', `repo:${props.repository}:pull_request`, ['lookup']);
+    githubRole('DiffDev', `${props.subjectPrefix}:pull_request`, ['lookup']);
   }
 }
