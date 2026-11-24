@@ -44,4 +44,10 @@ jobs:
           aws-region: us-east-1
       - name: Deploy
         working-directory: infra
-        run: npx cdk deploy "TravelRecords-$STAGE" --require-approval never
+        env:
+          AWS_CUSTOM_DOMAIN: ${{ case(env.STAGE == 'prod', vars.AWS_CUSTOM_DOMAIN_PROD, vars.AWS_CUSTOM_DOMAIN_DEV) }}
+          HOSTED_ZONE_ID: ${{ case(env.STAGE == 'prod', vars.HOSTED_ZONE_ID_PROD, vars.HOSTED_ZONE_ID_DEV) }}
+        run: >-
+          npx cdk deploy "TravelRecords-$STAGE" --require-approval never
+          -c "${STAGE}DomainName=$AWS_CUSTOM_DOMAIN"
+          -c "${STAGE}HostedZoneId=$HOSTED_ZONE_ID"

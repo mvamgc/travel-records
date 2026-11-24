@@ -22,6 +22,7 @@ export const SITE_DIR = path.join(REPO_ROOT, 'crates/client/dist');
 /** Settings that differ between dev and prod (ADR-0005 decision 1). */
 export interface EnvironmentConfig {
   readonly name: 'dev' | 'prod';
+  readonly domain?: { name: string; hostedZoneId: string };
   readonly logRetention: RetentionDays;
 }
 
