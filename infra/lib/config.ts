@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { App } from 'aws-cdk-lib';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 
 /** Every stack lives in us-east-1, where CloudFront certificates must come from anyway (ADR-0005). */
@@ -30,3 +31,17 @@ export const ENVIRONMENTS: readonly EnvironmentConfig[] = [
   { name: 'dev', logRetention: RetentionDays.TWO_WEEKS },
   { name: 'prod', logRetention: RetentionDays.THREE_MONTHS },
 ];
+
+/**
+ * A stage's custom domain, from the CDK context keys `<stage>DomainName` and
+ * `<stage>HostedZoneId` that the deploy workflow sets. Keys are per stage
+ * because `cdk deploy` synthesizes every stack, so one shared key would reach both.
+ */
+export function domainFromContext(app: App, stage: EnvironmentConfig['name']): EnvironmentConfig['domain'] {
+  // An unset GitHub variable arrives as '', so treat it as absent.
+  const name = app.node.tryGetContext(`${stage}DomainName`) || undefined;
+  const hostedZoneId = app.node.tryGetContext(`${stage}HostedZoneId`) || undefined;
+  if (!name) return undefined;
+  if (!hostedZoneId) throw new Error(`${stage}DomainName needs ${stage}HostedZoneId`);
+  return { name, hostedZoneId };
+}

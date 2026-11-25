@@ -3,21 +3,22 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { ENVIRONMENTS } from '../lib/config';
+import { EnvironmentConfig, ENVIRONMENTS } from '../lib/config';
 import { TravelRecordsStack } from '../lib/travel-records-stack';
 
 // Managed policy IDs (CloudFront developer guide).
 const CACHING_DISABLED = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
 const ALL_VIEWER_EXCEPT_HOST_HEADER = 'b689b0a8-53d0-40ab-baf2-68738e2966ac';
 
-function synth(): Template {
+/** Dev, which has no custom domain unless a test gives it one. */
+function synth(config: EnvironmentConfig = ENVIRONMENTS[0]): Template {
   // No Rust build in unit tests: cdk synth in CI covers that.
   const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
   const siteDir = mkdtempSync(path.join(tmpdir(), 'site-'));
   writeFileSync(path.join(siteDir, 'index.html'), '<!DOCTYPE html>');
   const stack = new TravelRecordsStack(app, 'TravelRecords-test', {
     env: { account: '123456789012', region: 'us-east-1' },
-    config: ENVIRONMENTS[0],
+    config,
     siteDir,
   });
   return Template.fromStack(stack);
@@ -83,4 +84,49 @@ test('unhashed shell files are uploaded uncached, after the hashed assets', () =
   const [, resource] = entry!;
   expect(resource.Properties.SystemMetadata).toEqual({ 'cache-control': 'no-cache' });
   expect(resource.DependsOn.some((id: string) => id.includes('DeployAssets'))).toBe(true);
+});
+
+test('without a domain, the distribution has no aliases, certificate or DNS records', () => {
+  template.resourceCountIs('AWS::CertificateManager::Certificate', 0);
+  template.resourceCountIs('AWS::Route53::RecordSet', 0);
+  template.hasResourceProperties('AWS::CloudFront::Distribution', {
+    DistributionConfig: Match.objectLike({ Aliases: Match.absent() }),
+  });
+});
+
+describe('with a custom domain', () => {
+  const DOMAIN = { name: 'app.example.com', hostedZoneId: 'Z0123456789' };
+  const withDomain = synth({ ...ENVIRONMENTS[1], domain: DOMAIN });
+  const [certId] = Object.keys(withDomain.findResources('AWS::CertificateManager::Certificate'));
+  const [distId] = Object.keys(withDomain.findResources('AWS::CloudFront::Distribution'));
+
+  test('the certificate is validated by DNS in the given zone', () => {
+    withDomain.hasResourceProperties('AWS::CertificateManager::Certificate', {
+      DomainName: DOMAIN.name,
+      ValidationMethod: 'DNS',
+      DomainValidationOptions: [{ DomainName: DOMAIN.name, HostedZoneId: DOMAIN.hostedZoneId }],
+    });
+  });
+
+  test('the distribution answers to the domain with that certificate', () => {
+    withDomain.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Aliases: [DOMAIN.name],
+        ViewerCertificate: Match.objectLike({ AcmCertificateArn: { Ref: certId }, SslSupportMethod: 'sni-only' }),
+      }),
+    });
+  });
+
+  // Also guards zoneName in Web: set to the zone's own name, the records
+  // would land on the zone's apex instead of on a subdomain like this one.
+  test('A and AAAA records point the domain at the distribution', () => {
+    for (const type of ['A', 'AAAA']) {
+      withDomain.hasResourceProperties('AWS::Route53::RecordSet', {
+        Name: `${DOMAIN.name}.`,
+        Type: type,
+        HostedZoneId: DOMAIN.hostedZoneId,
+        AliasTarget: Match.objectLike({ DNSName: { 'Fn::GetAtt': [distId, 'DomainName'] } }),
+      });
+    }
+  });
 });
