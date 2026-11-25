@@ -99,7 +99,8 @@ Each environment has one CloudFront distribution:
 **Domains:**
 
 - **Prod uses your own domain** from the first real user, through a Route 53 hosted zone and an ACM certificate. Installed apps and local data are tied to the origin, so moving users later would leave both behind on the old name.
-- **Dev uses its default `*.cloudfront.net` name.**
+- **Dev uses its default `*.cloudfront.net` name**, unless it's given a domain the same way, for example to try out what depends on the origin before prod does. Dev holds only test data, so its name may change.
+- **The domain and its hosted zone are deploy settings, not code:** GitHub variables for each stage, which the deploy workflow passes to the CDK app (`infra/README.md`). A stage without them keeps its `*.cloudfront.net` name.
 
 Media downloads keep using presigned S3 URLs (HLD §4, §7). They are simple `GET` requests and trigger no preflight.
 

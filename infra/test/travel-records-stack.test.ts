@@ -94,6 +94,13 @@ test('without a domain, the distribution has no aliases, certificate or DNS reco
   });
 });
 
+test("without a domain, the Url output is the distribution's own name", () => {
+  const [distId] = Object.keys(template.findResources('AWS::CloudFront::Distribution'));
+  template.hasOutput('Url', {
+    Value: { 'Fn::Join': ['', ['https://', { 'Fn::GetAtt': [distId, 'DomainName'] }]] },
+  });
+});
+
 describe('with a custom domain', () => {
   const DOMAIN = { name: 'app.example.com', hostedZoneId: 'Z0123456789' };
   const withDomain = synth({ ...ENVIRONMENTS[1], domain: DOMAIN });
@@ -128,5 +135,9 @@ describe('with a custom domain', () => {
         AliasTarget: Match.objectLike({ DNSName: { 'Fn::GetAtt': [distId, 'DomainName'] } }),
       });
     }
+  });
+
+  test('the Url output is the domain', () => {
+    withDomain.hasOutput('Url', { Value: `https://${DOMAIN.name}` });
   });
 });

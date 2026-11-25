@@ -65,5 +65,4 @@ From then on, every merge to `main` deploys dev, pull requests show a `cdk diff`
 
 - The DynamoDB table, which waits for the data-model LLD: ADR-0003's ordered-read index must exist when the table is created.
 - The media bucket, the Cognito user pool and the other functions of ADR-0001, ADR-0006, ADR-0009 and ADR-0010.
-- Prod's own domain and certificate (ADR-0005 decision 5). Until then, prod uses its `*.cloudfront.net` name.
 - A Content Security Policy (ADR-0009). Trunk's inline loader script needs a hash or a nonce first.

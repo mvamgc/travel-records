@@ -27,6 +27,6 @@ export class TravelRecordsStack extends Stack {
       domain: props.config.domain,
     });
 
-    new CfnOutput(this, 'Url', { value: `https://${web.distribution.distributionDomainName}` });
+    new CfnOutput(this, 'Url', { value: web.url });
   }
 }

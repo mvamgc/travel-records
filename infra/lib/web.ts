@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { Fn, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { HttpApi } from 'aws-cdk-lib/aws-apigatewayv2';
+import { Certificate, CertificateValidation, ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import {
   AllowedMethods,
   CachePolicy,
@@ -15,13 +16,12 @@ import {
   ViewerProtocolPolicy,
 } from 'aws-cdk-lib/aws-cloudfront';
 import { HttpOrigin, S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { AaaaRecord, ARecord, HostedZone, IHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
+import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { BucketDeployment, CacheControl, ISource, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
-import { AaaaRecord, ARecord, HostedZone, IHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
-import { Certificate, CertificateValidation, ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
-import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
-import {EnvironmentConfig} from "./config";
+import { EnvironmentConfig } from './config';
 
 export interface WebProps {
   readonly api: HttpApi;
@@ -41,6 +41,8 @@ const UNHASHED_FILES = ['index.html', 'sw.js', 'manifest.webmanifest', 'icons/*'
 /** One CloudFront origin for the PWA and the API (ADR-0005 decision 5). */
 export class Web extends Construct {
   readonly distribution: Distribution;
+  /** Where users open the app: the custom domain if there is one, otherwise the distribution's own name. */
+  readonly url: string;
 
   constructor(scope: Construct, id: string, props: WebProps) {
     super(scope, id);
@@ -108,6 +110,7 @@ export class Web extends Construct {
         },
       },
     });
+    this.url = `https://${props.domain?.name ?? this.distribution.distributionDomainName}`;
 
     if (zone) {
       const target = RecordTarget.fromAlias(new CloudFrontTarget(this.distribution));
