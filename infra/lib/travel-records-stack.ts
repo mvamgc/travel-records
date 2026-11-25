@@ -21,8 +21,12 @@ export class TravelRecordsStack extends Stack {
     super(scope, id, props);
 
     const api = new Api(this, 'Api', { config: props.config });
-    const web = new Web(this, 'Web', { api: api.httpApi, siteDir: props.siteDir ?? SITE_DIR });
+    const web = new Web(this, 'Web', {
+      api: api.httpApi,
+      siteDir: props.siteDir ?? SITE_DIR,
+      domain: props.config.domain,
+    });
 
-    new CfnOutput(this, 'Url', { value: `https://${web.distribution.distributionDomainName}` });
+    new CfnOutput(this, 'Url', { value: web.url });
   }
 }

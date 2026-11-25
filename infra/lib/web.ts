@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { Fn, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { HttpApi } from 'aws-cdk-lib/aws-apigatewayv2';
+import { Certificate, CertificateValidation, ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import {
   AllowedMethods,
   CachePolicy,
@@ -15,14 +16,19 @@ import {
   ViewerProtocolPolicy,
 } from 'aws-cdk-lib/aws-cloudfront';
 import { HttpOrigin, S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { AaaaRecord, ARecord, HostedZone, IHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
+import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { BucketDeployment, CacheControl, ISource, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
+import { EnvironmentConfig } from './config';
 
 export interface WebProps {
   readonly api: HttpApi;
   /** The built PWA. */
   readonly siteDir: string;
+  /** A custom domain; without one, the distribution keeps its *.cloudfront.net name. */
+  readonly domain?: EnvironmentConfig['domain'];
 }
 
 /**
@@ -35,6 +41,8 @@ const UNHASHED_FILES = ['index.html', 'sw.js', 'manifest.webmanifest', 'icons/*'
 /** One CloudFront origin for the PWA and the API (ADR-0005 decision 5). */
 export class Web extends Construct {
   readonly distribution: Distribution;
+  /** Where users open the app: the custom domain if there is one, otherwise the distribution's own name. */
+  readonly url: string;
 
   constructor(scope: Construct, id: string, props: WebProps) {
     super(scope, id);
@@ -62,10 +70,28 @@ export class Web extends Construct {
 }`),
     });
 
+    let zone: IHostedZone | undefined;
+    let certificate: ICertificate | undefined;
+    if (props.domain) {
+      // The ID is what finds the zone. Records default to zoneName, so using the
+      // domain itself puts them on it, whether it's the zone apex or a subdomain.
+      zone = HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+        hostedZoneId: props.domain.hostedZoneId,
+        zoneName: props.domain.name,
+      });
+      certificate = new Certificate(this, 'HttpsCertificate', {
+        domainName: props.domain.name,
+        validation: CertificateValidation.fromDns(zone),
+      });
+    }
+    const domainNames: string[] | undefined = props.domain && [props.domain.name];
+
     this.distribution = new Distribution(this, 'Distribution', {
       comment: `Travel Records ${Stack.of(this).stackName}`,
       defaultRootObject: 'index.html',
       httpVersion: HttpVersion.HTTP2_AND_3,
+      domainNames,
+      certificate,
       defaultBehavior: {
         origin: S3BucketOrigin.withOriginAccessControl(bucket),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -84,6 +110,13 @@ export class Web extends Construct {
         },
       },
     });
+    this.url = `https://${props.domain?.name ?? this.distribution.distributionDomainName}`;
+
+    if (zone) {
+      const target = RecordTarget.fromAlias(new CloudFrontTarget(this.distribution));
+      new ARecord(this, 'AliasA', { zone, target });
+      new AaaaRecord(this, 'AliasAaaa', { zone, target });
+    }
 
     const site = siteSource(this, props.siteDir);
     // Hashed files never change, so browsers and CloudFront keep them for a year.

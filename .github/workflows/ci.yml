@@ -73,4 +73,10 @@ jobs:
           aws-region: us-east-1
       - name: Diff
         working-directory: infra
-        run: npx cdk diff TravelRecords-dev
+        env:
+          AWS_CUSTOM_DOMAIN: ${{ vars.AWS_CUSTOM_DOMAIN_DEV }}
+          HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID_DEV }}
+        run: >-
+          npx cdk diff TravelRecords-dev
+          -c "devDomainName=$AWS_CUSTOM_DOMAIN"
+          -c "devHostedZoneId=$HOSTED_ZONE_ID"

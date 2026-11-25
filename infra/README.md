@@ -53,11 +53,16 @@ Until these steps are done, the deploy workflow and the `cdk diff` job in CI are
 
    These are ARNs, not secrets. No AWS keys are stored in GitHub.
 
+5. **Optional: give a stage its own domain.** The domain needs a public Route 53 hosted zone in this account. Set both repository variables for the stage:
+   - for prod, `AWS_CUSTOM_DOMAIN_PROD` and `HOSTED_ZONE_ID_PROD`;
+   - for dev, `AWS_CUSTOM_DOMAIN_DEV` and `HOSTED_ZONE_ID_DEV`.
+
+   A domain without its hosted zone ID fails the deploy. A stage without a domain keeps its `*.cloudfront.net` name. These aren't secrets either.
+
 From then on, every merge to `main` deploys dev, pull requests show a `cdk diff` against dev, and running the Deploy workflow by hand on `main` deploys prod. The stacks print their URL as the `Url` output.
 
 ## Not here yet
 
 - The DynamoDB table, which waits for the data-model LLD: ADR-0003's ordered-read index must exist when the table is created.
 - The media bucket, the Cognito user pool and the other functions of ADR-0001, ADR-0006, ADR-0009 and ADR-0010.
-- Prod's own domain and certificate (ADR-0005 decision 5). Until then, prod uses its `*.cloudfront.net` name.
 - A Content Security Policy (ADR-0009). Trunk's inline loader script needs a hash or a nonce first.
